@@ -18,6 +18,10 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: true
 
+# Required permissions for creating releases and uploading assets
+permissions:
+  contents: write
+
 jobs:
   # ═══════════════════════════════════════════════════════════════════════════
   # Job 1 – Build on Linux (fast, free minutes)
