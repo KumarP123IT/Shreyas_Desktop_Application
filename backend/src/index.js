@@ -58,9 +58,17 @@ async function main() {
   const scheduler = require('./workers/scheduler');
   scheduler.start();
 
+  // ── Start Baileys WhatsApp client ──────────────────────────────────────────
+  const baileysService = require('./services/baileysService');
+  baileysService.startClient().catch((err) =>
+    logger.warn({ err }, 'Baileys: initial connect failed — will retry automatically')
+  );
+
   // ── Graceful shutdown ──────────────────────────────────────────────────────
   async function shutdown(signal) {
     logger.info({ signal }, 'Shutting down…');
+    // Stop Baileys first so WA connection closes cleanly
+    try { require('./services/baileysService').stopClient(); } catch (_) {}
     server.close(async () => {
       await prisma.$disconnect();
       logger.info('Goodbye.');
@@ -70,8 +78,7 @@ async function main() {
   }
 
   process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT',  () => shutdown('SIGINT'));
-  process.on('uncaughtException', (err) => {
+  process.on('SIGINT',  () => shutdown('SIGINT'));  process.on('uncaughtException', (err) => {
     logger.fatal({ err }, 'Uncaught exception');
     process.exit(1);
   });

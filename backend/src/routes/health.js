@@ -6,7 +6,6 @@
 
 const { Router } = require('express');
 const prisma = require('../config/prisma');
-const settingsRepo = require('../repositories/settingsRepository');
 const logger = require('../config/logger');
 const asyncHandler = require('../utils/asyncHandler');
 
@@ -33,14 +32,9 @@ async function checkInternet() {
 
 async function checkWaha() {
   try {
-    const s = await settingsRepo.getAllDecrypted();
-    if (!s.waha_url) return { status: 'not_configured' };
-    const { default: axios } = await import('axios');
-    const res = await axios.get(`${s.waha_url}/api/sessions/${s.waha_session || 'default'}`, {
-      headers: s.waha_api_key ? { 'X-Api-Key': s.waha_api_key } : {},
-      timeout: 4000,
-    });
-    return { status: res.data?.status === 'WORKING' ? 'ok' : (res.data?.status || 'unknown') };
+    const baileysService = require('../services/baileysService');
+    const result = await baileysService.getSessionStatus();
+    return { status: result.status === 'WORKING' ? 'ok' : result.status };
   } catch (e) {
     return { status: 'error', message: e.message };
   }

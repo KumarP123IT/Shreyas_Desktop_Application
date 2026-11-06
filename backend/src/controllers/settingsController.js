@@ -1,9 +1,10 @@
 const settingsService = require('../services/settingsService');
 const emailService = require('../services/emailService');
-const wahaService = require('../services/wahaService');
+const baileysService = require('../services/baileysService');
 const { success } = require('../utils/response');
 const asyncHandler = require('../utils/asyncHandler');
 const { ValidationError } = require('../utils/errors');
+const logger = require('../config/logger');
 
 const getAll = asyncHandler(async (req, res) => {
   const data = await settingsService.getPublic();
@@ -28,20 +29,28 @@ const verifySmtp = asyncHandler(async (req, res) => {
 });
 
 const wahaStatus = asyncHandler(async (req, res) => {
-  const result = await wahaService.getSessionStatus();
+  const result = await baileysService.getSessionStatus();
   success(res, result);
 });
 
 const wahaQr = asyncHandler(async (req, res) => {
-  const result = await wahaService.getQrCode();
+  const result = await baileysService.getQrCode();
   success(res, result);
 });
 
 const testWhatsapp = asyncHandler(async (req, res) => {
   const { to } = req.body;
   if (!to) throw new ValidationError('to number is required');
-  const result = await wahaService.sendTestMessage(to);
+  const result = await baileysService.sendTestMessage(to);
   success(res, { message: `Test message sent to ${to}`, result });
 });
 
-module.exports = { getAll, update, testEmail, verifySmtp, wahaStatus, wahaQr, testWhatsapp };
+const wahaLogout = asyncHandler(async (req, res) => {
+  await baileysService.logout();
+  success(res, { message: 'Logged out — scan a new QR code to reconnect' });
+});
+
+module.exports = {
+  getAll, update, testEmail, verifySmtp,
+  wahaStatus, wahaQr, testWhatsapp, wahaLogout,
+};

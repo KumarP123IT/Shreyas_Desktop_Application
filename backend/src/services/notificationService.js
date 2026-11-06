@@ -4,7 +4,7 @@
 
 const prisma = require('../config/prisma');
 const emailService = require('./emailService');
-const wahaService = require('./wahaService');
+const wahaService = require('./baileysService');
 const settingsRepo = require('../repositories/settingsRepository');
 const logger = require('../config/logger');
 const { differenceInDays } = require('date-fns');
