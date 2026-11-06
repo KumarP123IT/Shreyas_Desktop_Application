@@ -1,0 +1,159 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Base ─────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  @apply font-sans bg-background text-text;
+  min-height: 100vh;
+  margin: 0;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* ── Dark mode body ───────────────────────────────────────────────────────── */
+.dark body {
+  background-color: #0D1B2A;
+  color: #E2EAF4;
+}
+
+/* ── Scrollbar ────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #C8D0D9; border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: #8A9AAD; }
+.dark ::-webkit-scrollbar-thumb { background: #2D4060; }
+.dark ::-webkit-scrollbar-thumb:hover { background: #3D5070; }
+
+/* ── Focus ring (WCAG AA) ─────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid #0070F2;
+  outline-offset: 2px;
+}
+
+/* ── Component layer ──────────────────────────────────────────────────────── */
+@layer components {
+
+  /* Cards */
+  .fiori-card {
+    @apply bg-surface rounded-card shadow-fiori border border-border;
+  }
+  .dark .fiori-card {
+    background-color: #1A2D42;
+    border-color: #243650;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.2);
+  }
+
+  /* Buttons */
+  .fiori-btn-primary {
+    @apply bg-primary hover:bg-primary-hover text-white text-sm font-semibold
+           px-4 py-2.5 rounded-control transition-colors duration-150
+           focus-visible:outline-2 focus-visible:outline-primary
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .fiori-btn-secondary {
+    @apply bg-surface hover:bg-background text-primary text-sm font-semibold border border-primary
+           px-4 py-2.5 rounded-control transition-colors duration-150
+           focus-visible:outline-2 focus-visible:outline-primary
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .dark .fiori-btn-secondary {
+    background-color: transparent;
+  }
+  .fiori-btn-ghost {
+    @apply bg-transparent hover:bg-background text-text-secondary text-sm font-medium
+           px-3.5 py-2 rounded-control transition-colors duration-150
+           focus-visible:outline-2 focus-visible:outline-primary;
+  }
+  .dark .fiori-btn-ghost:hover {
+    background-color: #1E3150;
+  }
+
+  /* Inputs */
+  .fiori-input {
+    @apply w-full bg-surface border border-border rounded-control px-3.5 py-2.5
+           text-sm text-text placeholder-text-secondary
+           focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary
+           transition-colors duration-150
+           disabled:bg-background disabled:cursor-not-allowed;
+  }
+  .dark .fiori-input {
+    background-color: #162030;
+    border-color: #243650;
+    color: #E2EAF4;
+  }
+  .dark .fiori-input:focus {
+    border-color: #0070F2;
+    box-shadow: 0 0 0 1px #0070F2;
+  }
+
+  /* Labels */
+  .fiori-label {
+    @apply block text-[13px] font-semibold text-text-secondary uppercase tracking-wide mb-1.5;
+  }
+
+  /* Status badges */
+  .status-badge  { @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold; }
+  .status-below  { @apply status-badge bg-red-100    text-error; }
+  .status-above  { @apply status-badge bg-orange-100 text-warning; }
+  .status-normal { @apply status-badge bg-green-100  text-success; }
+  .status-unknown{ @apply status-badge bg-gray-100   text-text-secondary; }
+
+  /* Dark status badges */
+  .dark .status-below  { background-color: rgba(210,10,10,0.18);  color: #f87171; }
+  .dark .status-above  { background-color: rgba(233,115,12,0.18); color: #fb923c; }
+  .dark .status-normal { background-color: rgba(24,137,24,0.18);  color: #4ade80; }
+  .dark .status-unknown{ background-color: rgba(100,100,100,0.18);color: #94a3b8; }
+
+  /* Message strips */
+  .message-strip-error   { @apply bg-red-50    border-l-4 border-error   p-3 rounded-control text-sm text-error; }
+  .message-strip-warning { @apply bg-orange-50 border-l-4 border-warning p-3 rounded-control text-sm text-warning; }
+  .message-strip-info    { @apply bg-blue-50   border-l-4 border-info    p-3 rounded-control text-sm text-info; }
+  .message-strip-success { @apply bg-green-50  border-l-4 border-success p-3 rounded-control text-sm text-success; }
+
+  .dark .message-strip-error   { background-color: rgba(210,10,10,0.12);   color: #f87171; border-color: #ef4444; }
+  .dark .message-strip-warning { background-color: rgba(233,115,12,0.12);  color: #fb923c; border-color: #f97316; }
+  .dark .message-strip-info    { background-color: rgba(0,112,242,0.12);   color: #60a5fa; border-color: #3b82f6; }
+  .dark .message-strip-success { background-color: rgba(24,137,24,0.12);   color: #4ade80; border-color: #22c55e; }
+
+  /* Skeleton */
+  .skeleton { @apply animate-pulse bg-border rounded; }
+  .dark .skeleton { background-color: #1E3150; }
+}
+
+/* ── AG Grid dark mode overrides ─────────────────────────────────────────── */
+.dark .ag-theme-alpine {
+  --ag-background-color: #1A2D42;
+  --ag-header-background-color: #162030;
+  --ag-odd-row-background-color: #1E3350;
+  --ag-row-hover-color: #1E3A5F;
+  --ag-selected-row-background-color: #1A4A7A;
+  --ag-border-color: #243650;
+  --ag-header-foreground-color: #94A3B8;
+  --ag-foreground-color: #E2EAF4;
+  --ag-secondary-foreground-color: #64748B;
+  --ag-range-selection-border-color: #0070F2;
+}
+.ag-theme-alpine {
+  --ag-font-family: Inter, Arial, sans-serif;
+  --ag-font-size: 14px;
+  --ag-header-background-color: #F5F6F7;
+  --ag-odd-row-background-color: #FAFAFA;
+  --ag-row-hover-color: #EAF3FF;
+  --ag-selected-row-background-color: #D6EAFF;
+  --ag-border-color: #D9D9D9;
+  --ag-header-foreground-color: #1D2D3E;
+  --ag-foreground-color: #1D2D3E;
+  --ag-secondary-foreground-color: #556B82;
+  --ag-range-selection-border-color: #0070F2;
+  --ag-cell-horizontal-padding: 14px;
+  --ag-row-height: 44px;
+  --ag-header-height: 46px;
+}

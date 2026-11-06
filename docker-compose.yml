@@ -1,0 +1,33 @@
+# Smart MSL Monitor – WAHA (WhatsApp HTTP API) companion container.
+# Usage: copy .env.example to .env, fill in values, then `docker compose up -d`.
+#
+# The backend runs on the host (npm start) and WAHA runs here.
+# host.docker.internal lets the WAHA container reach the backend webhook.
+
+services:
+  waha:
+    image: devlikeapro/waha:latest
+    container_name: smart-msl-waha
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    extra_hosts:
+      # Required on Linux so the container can reach the host backend.
+      - "host.docker.internal:host-gateway"
+    environment:
+      # API key – must match `waha_api_key` in the app Settings → WhatsApp tab
+      # (or be left empty in both places for local dev).
+      WAHA_API_KEY: ${WAHA_API_KEY:-}
+      # Dashboard login (http://localhost:3000/dashboard)
+      WAHA_DASHBOARD_ENABLED: "true"
+      WAHA_DASHBOARD_USERNAME: ${WAHA_DASHBOARD_USERNAME:-admin}
+      WAHA_DASHBOARD_PASSWORD: ${WAHA_DASHBOARD_PASSWORD:-}
+      # Webhook: forward incoming WhatsApp messages to the backend.
+      # NOTE: if WAHA_API_KEY is set, append ?apiKey=<key> to the URL or
+      # configure the X-Api-Key header in the WAHA session config instead.
+      WAHA_WEBHOOK_URL: http://host.docker.internal:4000/api/webhooks/waha
+      WAHA_WEBHOOK_EVENTS: message,message.any
+    volumes:
+      # WhatsApp session data (survives container restarts – do not delete
+      # unless you want to re-pair the WhatsApp account).
+      - ./waha-sessions:/app/.sessions

@@ -1,0 +1,193 @@
+/**
+ * Prisma seed file – creates:
+ *  - Admin user (admin / Admin@1234)
+ *  - Global MSL defaults (Min 100 / Max 500)
+ *  - Demo customer: Kirloskar Toyota Textile Machinery Pvt Ltd
+ *  - Default reminder rules (10, 5, 3, 1 days before due)
+ *  - Default app settings
+ *  - Demo forecast + delivery with sample KTTM parts
+ */
+
+const { PrismaClient } = require('@prisma/client');
+const bcrypt = require('bcryptjs');
+
+const prisma = new PrismaClient();
+
+async function main() {
+  console.log('🌱  Seeding database …');
+
+  // ── Admin user ────────────────────────────────────────────────────────────
+  const hash = await bcrypt.hash('Admin@1234', 12);
+  const user = await prisma.user.upsert({
+    where: { username: 'admin' },
+    update: {},
+    create: {
+      username: 'admin',
+      email: 'admin@shreyas.local',
+      passwordHash: hash,
+      displayName: 'Shreyas Admin',
+    },
+  });
+  console.log(`  ✓ User created: ${user.username}`);
+
+  // ── Global MSL default ───────────────────────────────────────────────────
+  await prisma.mslGlobalDefault.upsert({
+    where: { id: 1 },
+    update: {},
+    create: { id: 1, minQty: 100, maxQty: 500 },
+  });
+  console.log('  ✓ MSL global default: Min 100 / Max 500');
+
+  // ── Default reminder rules ────────────────────────────────────────────────
+  const offsets = [10, 5, 3, 1];
+  for (const days of offsets) {
+    const rule = await prisma.reminderRule.upsert({
+      where: { id: days },   // use days as id for idempotency
+      update: {},
+      create: {
+        id: days,
+        name: `${days} day${days > 1 ? 's' : ''} before due`,
+        daysBeforeDue: days,
+        isDefault: true,
+      },
+    });
+    console.log(`  ✓ Reminder rule: ${rule.name}`);
+  }
+
+  // ── Demo customer ─────────────────────────────────────────────────────────
+  const customer = await prisma.customer.upsert({
+    where: { id: 1 },
+    update: {},
+    create: {
+      id: 1,
+      name: 'Kirloskar Toyota Textile Machinery Pvt Ltd',
+      supplierCode: 'S0965',
+      contactName: 'Kirloskar Toyota Purchase',
+      contactEmail: 'purchase@kirloskar-toyota.local',
+      contactWhatsapp: '',
+      notes: 'Demo customer. Sends monthly forecast by 5th of each month.',
+      notifyWhatsapp: true,
+      notifyEmail: true,
+      reminderOffsets: JSON.stringify([10, 5, 3, 1]),
+    },
+  });
+  console.log(`  ✓ Customer: ${customer.name}`);
+
+  // ── Default app settings ──────────────────────────────────────────────────
+  const settings = [
+    { key: 'smtp_host',        value: '',                 isSecret: false },
+    { key: 'smtp_port',        value: '587',              isSecret: false },
+    { key: 'smtp_user',        value: '',                 isSecret: false },
+    { key: 'smtp_pass',        value: '',                 isSecret: true  },
+    { key: 'smtp_from',        value: '',                 isSecret: false },
+    { key: 'waha_url',         value: 'http://localhost:3000', isSecret: false },
+    { key: 'waha_api_key',     value: '',                 isSecret: true  },
+    { key: 'waha_session',     value: 'default',          isSecret: false },
+    { key: 'recipient_email',  value: '',                 isSecret: false },
+    { key: 'recipient_whatsapp', value: '',               isSecret: false },
+    { key: 'timezone',         value: 'Asia/Kolkata',     isSecret: false },
+    { key: 'app_theme',        value: 'light',            isSecret: false },
+    { key: 'backup_keep_days', value: '14',               isSecret: false },
+    { key: 'scheduler_interval_sec', value: '30',         isSecret: false },
+    {
+      key: 'tpl_whatsapp_reminder',
+      value: `Shreyas MSL Monitor – Delivery Reminder\n\nCustomer: {{customerName}}\nPart: {{partName}} ({{partNumber}})\nTotal: {{totalQty}} | Min: {{minQty}} | Max: {{maxQty}}\nDelivery due: {{dueDate}}\n\nReply with a number:\n1 – Remind me later\n2 – Remind me at a specific date & time\n3 – Delivered – stop messages`,
+      isSecret: false,
+    },
+    {
+      key: 'tpl_email_reminder_subject',
+      value: 'Delivery Reminder: {{customerName}} – due {{dueDate}}',
+      isSecret: false,
+    },
+    {
+      key: 'tpl_email_reminder_body',
+      value: `<p>Dear Team,</p>\n<p>This is a reminder that the following delivery is due on <strong>{{dueDate}}</strong>.</p>\n<p><strong>Customer:</strong> {{customerName}}<br/><strong>Part:</strong> {{partName}} ({{partNumber}})<br/><strong>Total:</strong> {{totalQty}} | Min: {{minQty}} | Max: {{maxQty}}</p>\n<p>Please log into the Smart MSL Monitor for full details.</p>`,
+      isSecret: false,
+    },
+  ];
+
+  for (const s of settings) {
+    await prisma.appSetting.upsert({
+      where: { key: s.key },
+      update: {},
+      create: s,
+    });
+  }
+  console.log(`  ✓ ${settings.length} app settings initialised`);
+
+  // ── Demo forecast + delivery ──────────────────────────────────────────────
+  const existingForecast = await prisma.forecast.findFirst({ where: { customerId: 1 } });
+  if (!existingForecast) {
+    const forecast = await prisma.forecast.create({
+      data: {
+        customerId: 1,
+        forecastMonth: '2027-02',
+        sentDate: new Date('2026-11-05'),
+        filePath: '/storage/uploads/customer_1/2027-02/v1_demo.pdf',
+        fileName: 'KTTM_FEB-2027_forecast.pdf',
+        fileType: 'pdf',
+        version: 1,
+        parserConfidence: 0.97,
+        status: 'active',
+      },
+    });
+
+    const demoItems = [
+      { partNumber: '71109-06001-00', partName: 'SCREW,STUD',           totalQty: 2     },
+      { partNumber: '83109-30005',    partName: 'BOLT,HEX',             totalQty: 6     },
+      { partNumber: '94220-00800',    partName: 'NUT,WELD(M8*1.25)',    totalQty: 31655 },
+      { partNumber: '90119-06008',    partName: 'BOLT (6X8)',           totalQty: 330   },
+      { partNumber: '90149-06039',    partName: 'NUT (6X1)',            totalQty: 248   },
+      { partNumber: '93504-06016',    partName: 'SCREW (6X16)',         totalQty: 10    },
+      { partNumber: '90080-14048',    partName: 'BOLT (14X48)',         totalQty: 180   },
+      { partNumber: '90119-08020',    partName: 'BOLT (8X20)',          totalQty: 78911 },
+    ];
+
+    const delivery = await prisma.delivery.create({
+      data: {
+        customerId: 1,
+        forecastId: forecast.id,
+        forecastMonth: '2027-02',
+        startDate: new Date('2027-01-20'),
+        dueDate: new Date('2027-02-20'),
+        status: 'active',
+      },
+    });
+
+    // Snapshot MSL: global default min=100, max=500
+    await prisma.deliveryItem.createMany({
+      data: demoItems.map((item, idx) => {
+        let status;
+        if (item.totalQty < 100)  status = 'BELOW_MIN';
+        else if (item.totalQty > 500) status = 'ABOVE_MAX';
+        else status = 'NORMAL';
+        return {
+          deliveryId: delivery.id,
+          partNumber: item.partNumber,
+          partName: item.partName,
+          totalQty: item.totalQty,
+          snapshotMinQty: 100,
+          snapshotMaxQty: 500,
+          snapshotSource: 'global',
+          mslStatus: status,
+          rowOrder: idx,
+        };
+      }),
+    });
+
+    console.log(`  ✓ Demo forecast + delivery created (${demoItems.length} parts)`);
+    console.log('    → Parts 2, 6, 10 = BELOW_MIN; 78911 = ABOVE_MAX; others NORMAL/BELOW_MIN');
+  } else {
+    console.log('  ℹ Demo forecast already exists – skipping');
+  }
+
+  console.log('\n✅  Seeding complete.');
+  console.log('   Login: admin / Admin@1234');
+}
+
+main()
+  .catch((e) => {
+    console.error('Seed error:', e);
+    process.exit(1);
+  })
+  .finally(() => prisma.$disconnect());

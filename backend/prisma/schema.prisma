@@ -1,0 +1,338 @@
+generator client {
+  provider      = "prisma-client-js"
+  // SQLite requires the engine to be bundled for pkg/NSIS packaging
+  binaryTargets = ["native", "windows"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── User & Auth ─────────────────────────────────────────────────────────────
+
+model User {
+  id             Int       @id @default(autoincrement())
+  username       String    @unique
+  email          String    @unique
+  passwordHash   String
+  displayName    String
+  failedAttempts Int       @default(0)
+  lockedUntil    DateTime?
+  rememberToken  String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  auditLogs AuditLog[]
+
+  @@map("users")
+}
+
+// ─── Customer ─────────────────────────────────────────────────────────────────
+
+model Customer {
+  id                Int       @id @default(autoincrement())
+  name              String
+  supplierCode      String
+  contactName       String?
+  contactEmail      String?
+  contactWhatsapp   String?
+  notes             String?
+  notifyWhatsapp    Boolean   @default(true)
+  notifyEmail       Boolean   @default(true)
+  recipientEmail    String?
+  recipientWhatsapp String?
+  reminderOffsets   String?   // JSON stored as text
+  qtyCheckMode      String    @default("forecast")
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?
+
+  forecasts  Forecast[]
+  deliveries Delivery[]
+  mslDefault MslCustomerDefault?
+  auditLogs  AuditLog[]
+
+  @@index([supplierCode])
+  @@map("customers")
+}
+
+// ─── MSL Defaults & Overrides ─────────────────────────────────────────────────
+
+model MslGlobalDefault {
+  id        Int      @id @default(1)
+  minQty    Int      @default(100)
+  maxQty    Int      @default(500)
+  updatedAt DateTime @updatedAt
+
+  @@map("msl_global_default")
+}
+
+model MslCustomerDefault {
+  id         Int      @id @default(autoincrement())
+  customerId Int      @unique
+  minQty     Int
+  maxQty     Int
+  updatedAt  DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  @@map("msl_customer_defaults")
+}
+
+model MslPartOverride {
+  id         Int       @id @default(autoincrement())
+  customerId Int?
+  partNumber String
+  minQty     Int
+  maxQty     Int
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  @@unique([customerId, partNumber])
+  @@index([partNumber])
+  @@map("msl_part_overrides")
+}
+
+// ─── Forecast ─────────────────────────────────────────────────────────────────
+
+model Forecast {
+  id               Int       @id @default(autoincrement())
+  customerId       Int
+  forecastMonth    String    // "2027-02"
+  sentDate         DateTime?
+  uploadedAt       DateTime  @default(now())
+  filePath         String
+  fileName         String
+  fileType         String    // "pdf" | "xlsx"
+  version          Int       @default(1)
+  parserConfidence Float?
+  parseWarnings    String?   // JSON stored as text
+  status           String    @default("draft") // draft | active | archived
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
+
+  customer   Customer   @relation(fields: [customerId], references: [id])
+  deliveries Delivery[]
+
+  @@index([customerId, forecastMonth])
+  @@map("forecasts")
+}
+
+// ─── Delivery ─────────────────────────────────────────────────────────────────
+
+model Delivery {
+  id              Int       @id @default(autoincrement())
+  customerId      Int
+  forecastId      Int
+  forecastMonth   String
+  startDate       DateTime?
+  dueDate         DateTime?
+  status          String    @default("draft") // draft | active | delivered | cancelled
+  deliveredScope  String?   // "material" | "whole"
+  deliveredAt     DateTime?
+  reminderOffsets String?   // JSON stored as text
+  notifyWhatsapp  Boolean   @default(true)
+  notifyEmail     Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  customer           Customer            @relation(fields: [customerId], references: [id])
+  forecast           Forecast            @relation(fields: [forecastId], references: [id])
+  items              DeliveryItem[]
+  sheetColumns       SheetColumn[]
+  scheduledReminders ScheduledReminder[]
+  notificationLogs   NotificationLog[]
+
+  @@index([customerId, forecastMonth])
+  @@index([dueDate])
+  @@map("deliveries")
+}
+
+// ─── DeliveryItem ─────────────────────────────────────────────────────────────
+
+model DeliveryItem {
+  id             Int       @id @default(autoincrement())
+  deliveryId     Int
+  partNumber     String
+  partName       String
+  totalQty       Int       @default(0)
+  actualStock    Int?
+  snapshotMinQty Int?
+  snapshotMaxQty Int?
+  snapshotSource String?   // "global"|"customer"|"part"
+  mslStatus      String    @default("NOT_CONFIGURED") // BELOW_MIN|NORMAL|ABOVE_MAX|NOT_CONFIGURED
+  dueDate        DateTime?
+  extraColumns   String?   // JSON stored as text
+  rowOrder       Int       @default(0)
+  needsReview    Boolean   @default(false)
+  reviewNote     String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  delivery           Delivery            @relation(fields: [deliveryId], references: [id])
+  scheduledReminders ScheduledReminder[]
+
+  @@index([deliveryId, partNumber])
+  @@map("delivery_items")
+}
+
+// ─── SheetColumn ──────────────────────────────────────────────────────────────
+
+model SheetColumn {
+  id         Int    @id @default(autoincrement())
+  deliveryId Int
+  key        String
+  label      String
+  colType    String @default("text") // text | number | date
+  colOrder   Int    @default(0)
+  width      Int    @default(150)
+
+  delivery Delivery @relation(fields: [deliveryId], references: [id])
+
+  @@unique([deliveryId, key])
+  @@map("sheet_columns")
+}
+
+// ─── Reminder & Scheduling ────────────────────────────────────────────────────
+
+model ReminderRule {
+  id            Int      @id @default(autoincrement())
+  name          String
+  daysBeforeDue Int
+  isDefault     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  @@map("reminder_rules")
+}
+
+model ScheduledReminder {
+  id             Int       @id @default(autoincrement())
+  deliveryId     Int
+  deliveryItemId Int?
+  channel        String    // "whatsapp" | "email"
+  runAt          DateTime
+  status         String    @default("pending") // pending|sending|sent|failed|snoozed|stopped|delivered
+  daysBeforeDue  Int?
+  dedupeKey      String    @unique
+  attemptCount   Int       @default(0)
+  lastAttemptAt  DateTime?
+  lastError      String?
+  snoozedUntil   DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  delivery     Delivery      @relation(fields: [deliveryId], references: [id])
+  deliveryItem DeliveryItem? @relation(fields: [deliveryItemId], references: [id])
+
+  @@index([runAt, status])
+  @@index([deliveryId])
+  @@map("scheduled_reminders")
+}
+
+// ─── Notification Outbox & Log ────────────────────────────────────────────────
+
+model NotificationOutbox {
+  id           Int       @id @default(autoincrement())
+  channel      String
+  recipient    String
+  subject      String?
+  body         String
+  metadata     String?   // JSON stored as text
+  status       String    @default("pending") // pending|sending|sent|failed
+  attemptCount Int       @default(0)
+  nextRetryAt  DateTime?
+  lastError    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([status, nextRetryAt])
+  @@map("notification_outbox")
+}
+
+model NotificationLog {
+  id             Int       @id @default(autoincrement())
+  deliveryId     Int?
+  channel        String
+  recipient      String
+  subject        String?
+  body           String
+  status         String    // sent|failed|snoozed|stopped|delivered
+  errorDetail    String?
+  whatsappMsgId  String?
+  sentAt         DateTime  @default(now())
+
+  delivery Delivery? @relation(fields: [deliveryId], references: [id])
+
+  @@index([deliveryId])
+  @@index([sentAt])
+  @@map("notification_logs")
+}
+
+// ─── WhatsApp Conversation State ──────────────────────────────────────────────
+
+model WhatsappConversation {
+  id            Int      @id @default(autoincrement())
+  fromNumber    String
+  state         String   // awaiting_action|awaiting_hours|awaiting_datetime|awaiting_scope|awaiting_confirm
+  contextJson   String   // JSON stored as text
+  lastMessageId String?
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([fromNumber])
+  @@index([expiresAt])
+  @@map("whatsapp_conversations")
+}
+
+// ─── App Settings (encrypted secrets) ────────────────────────────────────────
+
+model AppSetting {
+  key       String   @id
+  value     String
+  isSecret  Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+
+  @@map("app_settings")
+}
+
+// ─── Audit Log ────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  userId     Int?
+  customerId Int?
+  entityType String
+  entityId   Int?
+  action     String
+  before     String?  // JSON stored as text
+  after      String?  // JSON stored as text
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  user     User?     @relation(fields: [userId], references: [id])
+  customer Customer? @relation(fields: [customerId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ─── Backup Log ───────────────────────────────────────────────────────────────
+
+model BackupLog {
+  id        Int      @id @default(autoincrement())
+  filePath  String
+  sizeBytes BigInt?
+  status    String   // success | failed
+  error     String?
+  createdAt DateTime @default(now())
+
+  @@map("backup_logs")
+}

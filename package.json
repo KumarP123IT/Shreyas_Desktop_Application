@@ -1,0 +1,21 @@
+{
+  "name": "smart-msl-monitor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Smart MSL Monitor – MSL Monitoring & Delivery Reminder System",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "start": "npm --prefix backend start",
+    "migrate": "npm --prefix backend run migrate",
+    "migrate:dev": "npm --prefix backend run migrate:dev",
+    "seed": "npm --prefix backend run seed",
+    "setup": "node backend/scripts/firstrun.js",
+    "fresh": "npm run migrate && npm run seed"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
