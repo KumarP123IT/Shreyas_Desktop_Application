@@ -20,7 +20,7 @@ const config = {
     port: parseInt(process.env.PORT || '4000', 10),
     frontendDist: path.resolve(
       __dirname,
-      '../../',
+      '../../',   // backend/src/ → backend/ → install root
       process.env.FRONTEND_DIST || '../frontend/dist'
     ),
   },
