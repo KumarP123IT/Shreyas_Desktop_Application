@@ -184,8 +184,6 @@ jobs:
       - name: Prepare installer build tree
         shell: pwsh
         run: |
-          # backend\ — overwrite src/prisma/scripts with staged (production) versions
-          # node_modules comes entirely from the staged artifact (pruned + Windows Prisma)
           Write-Host "Copying staged backend..."
           New-Item -ItemType Directory -Force -Path backend | Out-Null
           Copy-Item staging\backend\src           backend\src          -Recurse -Force
@@ -201,7 +199,33 @@ jobs:
           Write-Host "Creating dist-installer output directory..."
           New-Item -ItemType Directory -Force -Path dist-installer | Out-Null
 
-          # Verify expected paths exist before NSIS runs
+          Write-Host "Prepare complete."
+
+      # ── Regenerate Prisma client on Windows (MUST run before pre-flight) ─────
+      # The Linux stage only has the Linux binary. We regenerate here on the
+      # Windows runner so .prisma/client/ gets the correct Windows engine file.
+      - name: Regenerate Prisma client for Windows
+        shell: pwsh
+        run: |
+          $nodeExe   = (Resolve-Path "installer\runtimes\node\node.exe").Path
+          $prismaCli = (Resolve-Path "backend\node_modules\prisma\build\index.js").Path
+          Write-Host "Regenerating Prisma client using bundled Node..."
+          Write-Host "  node:   $nodeExe"
+          Write-Host "  prisma: $prismaCli"
+          $env:DATABASE_URL               = "file:./tmp-generate.db"
+          $env:PRISMA_CLI_QUERY_ENGINE_TYPE = "binary"
+          & $nodeExe $prismaCli generate --schema=backend\prisma\schema.prisma
+          if ($LASTEXITCODE -ne 0) { throw "prisma generate failed (exit $LASTEXITCODE)" }
+          Write-Host "Prisma generate done."
+          $files = Get-ChildItem "backend\node_modules\.prisma\client\" -File -ErrorAction SilentlyContinue
+          Write-Host "Generated files in .prisma\client\:"
+          $files | ForEach-Object { Write-Host "  $($_.Name)" }
+          if ($files.Count -eq 0) { throw "No files found in .prisma\client\ after generate!" }
+
+      # ── Pre-flight check ─────────────────────────────────────────────────────
+      - name: Pre-flight check
+        shell: pwsh
+        run: |
           $checks = @(
             "backend\src\index.js",
             "backend\node_modules\@prisma\client\package.json",
@@ -217,29 +241,6 @@ jobs:
             else              { Write-Host "  ✗ MISSING: $f"; $ok = $false }
           }
           if (-not $ok) { throw "Pre-flight check failed — required files missing." }
-
-      # ── Regenerate Prisma client on Windows so the correct binary is produced ─
-      # The Linux build stage generates a Linux binary. We MUST regenerate here
-      # on the Windows runner so .prisma/client/ contains the Windows engine.
-      - name: Regenerate Prisma client for Windows
-        shell: pwsh
-        run: |
-          $nodeExe = Resolve-Path "installer\runtimes\node\node.exe"
-          $prismaCli = Resolve-Path "backend\node_modules\prisma\build\index.js"
-          Write-Host "Regenerating Prisma client using bundled Node: $nodeExe"
-          $env:DATABASE_URL = "file:./tmp-generate.db"
-          $env:PRISMA_CLI_QUERY_ENGINE_TYPE = "binary"
-          & $nodeExe $prismaCli generate
-          if ($LASTEXITCODE -ne 0) { throw "Prisma generate failed with exit $LASTEXITCODE" }
-          # Verify the Windows engine binary was created
-          $engineFiles = Get-ChildItem "backend\node_modules\.prisma\client\" -File 2>$null
-          Write-Host "Prisma client files:"
-          $engineFiles | ForEach-Object { Write-Host "  $($_.Name)" }
-          if (-not ($engineFiles | Where-Object { $_.Name -match "windows" -or $_.Name -match "\.node$" })) {
-            throw "Windows Prisma engine binary not found after generate!"
-          }
-          Write-Host "Prisma Windows binary verified."
-        working-directory: .
 
       # ── Ensure LICENSE.txt ───────────────────────────────────────────────────
       - name: Ensure LICENSE.txt
