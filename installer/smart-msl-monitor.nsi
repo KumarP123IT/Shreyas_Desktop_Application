@@ -105,7 +105,8 @@ Section "Main Application" SecMain
   ; ── First-run database setup ───────────────────────────────────────────────
   DetailPrint "Setting up database..."
   SetOutPath "$INSTDIR"
-  nsExec::ExecToLog '"$INSTDIR\runtime\node\node.exe" "scripts\firstrun.js"'
+  ; Use the bundled node.exe explicitly — never rely on system PATH
+  nsExec::ExecToLog '"$INSTDIR\runtime\node\node.exe" "$INSTDIR\scripts\firstrun.js"'
   Pop $0
   ${If} $0 != 0
     MessageBox MB_ICONSTOP "Database setup failed (exit $0).$\nCheck logs and re-run the installer."
