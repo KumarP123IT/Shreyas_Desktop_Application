@@ -1,8 +1,8 @@
 name: Build & Release Windows Installer
 
 # Triggers:
-#   - Push a version tag  (git tag v1.2.3 && git push origin v1.2.3)
-#   - Manual run from the Actions tab (workflow_dispatch)
+#   Push a version tag:  git tag v1.2.3 && git push origin v1.2.3
+#   Manual run:          Actions tab → Run workflow
 on:
   push:
     tags:
@@ -10,42 +10,37 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version (e.g. 1.2.3) – overrides tag'
+        description: 'Version override (e.g. 1.2.3) — leave blank to use tag'
         required: false
         default: ''
 
-# Only one release build runs at a time
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   # ═══════════════════════════════════════════════════════════════════════════
-  # Job 1 – Build on Linux runner (fast, free)
-  # Produces: built frontend, Prisma client, node_modules snapshot
+  # Job 1 – Build on Linux (fast, free minutes)
+  #   • Installs deps, builds frontend, generates Prisma client for Windows
+  #   • Prunes devDeps, stages everything into a clean artifact
   # ═══════════════════════════════════════════════════════════════════════════
   build-app:
     name: Build Application
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout source
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # ── Resolve version ──────────────────────────────────────────────────────
       - name: Resolve version
-        id: version
+        id: ver
         run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            VER="${{ github.event.inputs.version }}"
-          else
-            VER="${GITHUB_REF_NAME#v}"
-          fi
+          VER="${{ github.event.inputs.version }}"
+          [ -z "$VER" ] && VER="${GITHUB_REF_NAME#v}"
           echo "version=$VER" >> "$GITHUB_OUTPUT"
-          echo "Version: $VER"
+          echo "Building version: $VER"
 
-      # ── Node.js setup ────────────────────────────────────────────────────────
-      - name: Setup Node.js
+      - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -54,7 +49,6 @@ jobs:
             frontend/package-lock.json
             backend/package-lock.json
 
-      # ── Install dependencies ─────────────────────────────────────────────────
       - name: Install frontend dependencies
         run: npm ci
         working-directory: frontend
@@ -63,55 +57,45 @@ jobs:
         run: npm ci
         working-directory: backend
 
-      # ── Build frontend ───────────────────────────────────────────────────────
       - name: Build frontend
         run: npm run build
         working-directory: frontend
 
-      # ── Generate Prisma client for Windows target ────────────────────────────
-      - name: Generate Prisma client (Windows + native)
+      # Generate Prisma client with BOTH Linux and Windows query engine binaries
+      - name: Generate Prisma client (native + windows)
         run: npx prisma generate
         working-directory: backend
         env:
-          # Tell Prisma to also generate Windows binaries
           PRISMA_CLI_QUERY_ENGINE_TYPE: binary
 
-      # ── Prune dev dependencies from backend ──────────────────────────────────
-      - name: Prune backend dev dependencies
+      # Remove devDependencies so we don't ship them in the installer
+      - name: Prune backend devDependencies
         run: npm prune --production
         working-directory: backend
 
-      # ── Bundle everything into a staging directory ───────────────────────────
+      # Deploy migrations against a temp SQLite file to validate them
+      - name: Validate SQLite migrations
+        run: npx prisma migrate deploy
+        working-directory: backend
+        env:
+          DATABASE_URL: "file:/tmp/msl-ci-validate.db"
+
+      # Stage everything the Windows runner needs into one artifact
       - name: Stage application files
         run: |
           mkdir -p staging/backend
           mkdir -p staging/frontend/dist
 
-          # Backend (no devDeps)
-          cp -r backend/src        staging/backend/
-          cp -r backend/prisma     staging/backend/
-          cp -r backend/scripts    staging/backend/
-          cp -r backend/node_modules staging/backend/
-          cp    backend/package.json staging/backend/
+          # Backend: source + production node_modules + prisma + scripts
+          cp -r backend/src           staging/backend/src
+          cp -r backend/prisma        staging/backend/prisma
+          cp -r backend/scripts       staging/backend/scripts
+          cp -r backend/node_modules  staging/backend/node_modules
+          cp    backend/package.json  staging/backend/package.json
 
-          # Frontend build output
-          cp -r frontend/dist/. staging/frontend/dist/
+          # Built frontend SPA
+          cp -r frontend/dist/.  staging/frontend/dist/
 
-          # Installer assets
-          cp -r installer/ staging/installer/
-
-      # ── Create migrations for SQLite ──────────────────────────────────────────
-      - name: Create initial SQLite migration
-        run: |
-          # Set a temp SQLite URL for migration generation
-          export DATABASE_URL="file:/tmp/msl-ci.db"
-          # Deploy any existing migrations (they will be regenerated for SQLite)
-          npx prisma migrate deploy || true
-        working-directory: backend
-        env:
-          DATABASE_URL: "file:/tmp/msl-ci.db"
-
-      # ── Upload staging artifact ───────────────────────────────────────────────
       - name: Upload staging artifact
         uses: actions/upload-artifact@v4
         with:
@@ -120,8 +104,10 @@ jobs:
           retention-days: 1
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # Job 2 – Package installer on Windows runner
-  # Downloads portable Node.js, NSSM, compiles NSIS
+  # Job 2 – Package installer on Windows
+  #   • Downloads portable Node.js 20 + NSSM
+  #   • Merges staged app into the repo tree
+  #   • Compiles NSIS → SmartMSLMonitor-Setup-x.x.x.exe
   # ═══════════════════════════════════════════════════════════════════════════
   build-installer:
     name: Build Windows Installer
@@ -129,132 +115,139 @@ jobs:
     needs: build-app
 
     steps:
-      - name: Checkout source (for installer scripts and assets)
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Resolve version
-        id: version
+        id: ver
         shell: bash
         run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            VER="${{ github.event.inputs.version }}"
-          else
-            VER="${GITHUB_REF_NAME#v}"
-          fi
+          VER="${{ github.event.inputs.version }}"
+          [ -z "$VER" ] && VER="${GITHUB_REF_NAME#v}"
           echo "version=$VER" >> "$GITHUB_OUTPUT"
 
-      # ── Download staged app ───────────────────────────────────────────────────
       - name: Download staging artifact
         uses: actions/download-artifact@v4
         with:
           name: app-staging
           path: staging/
 
-      # ── Download portable Node.js 20 LTS for Windows ──────────────────────────
-      - name: Download portable Node.js 20 (Windows x64)
+      # ── Download portable Node.js 20 LTS (Windows x64 zip) ──────────────────
+      - name: Download portable Node.js 20
         shell: pwsh
         run: |
-          $nodeVer = "20.14.0"
-          $url = "https://nodejs.org/dist/v$nodeVer/node-v$nodeVer-win-x64.zip"
-          $zip = "node-win.zip"
-          Write-Host "Downloading Node.js $nodeVer..."
-          Invoke-WebRequest -Uri $url -OutFile $zip
-          Expand-Archive -Path $zip -DestinationPath "node-tmp"
-          $nodeDir = Get-ChildItem "node-tmp" -Directory | Select-Object -First 1
-          New-Item -ItemType Directory -Force -Path "installer\runtimes\node"
-          Copy-Item -Path "$($nodeDir.FullName)\*" -Destination "installer\runtimes\node\" -Recurse
-          Remove-Item $zip, "node-tmp" -Recurse -Force
-          Write-Host "Node.js ready at installer\runtimes\node"
+          $ver = "20.14.0"
+          $url = "https://nodejs.org/dist/v$ver/node-v$ver-win-x64.zip"
+          Write-Host "Downloading Node.js $ver..."
+          Invoke-WebRequest -Uri $url -OutFile node-win.zip -UseBasicParsing
+          Expand-Archive node-win.zip node-tmp
+          $src = (Get-ChildItem node-tmp -Directory | Select-Object -First 1).FullName
+          New-Item -ItemType Directory -Force -Path installer\runtimes\node | Out-Null
+          Copy-Item "$src\*" installer\runtimes\node\ -Recurse -Force
+          Remove-Item node-win.zip, node-tmp -Recurse -Force
+          Write-Host "Node.js ready."
 
-      # ── Download NSSM (Non-Sucking Service Manager) ───────────────────────────
+      # ── Download NSSM 2.24 ───────────────────────────────────────────────────
       - name: Download NSSM
         shell: pwsh
         run: |
-          $url = "https://nssm.cc/release/nssm-2.24.zip"
-          $zip = "nssm.zip"
           Write-Host "Downloading NSSM..."
-          Invoke-WebRequest -Uri $url -OutFile $zip
-          Expand-Archive -Path $zip -DestinationPath "nssm-tmp"
-          New-Item -ItemType Directory -Force -Path "installer\runtimes"
-          Copy-Item "nssm-tmp\nssm-2.24\win64\nssm.exe"  "installer\runtimes\nssm.exe"
-          Copy-Item "nssm-tmp\nssm-2.24\win32\nssm.exe"  "installer\runtimes\nssm-x86.exe"
-          Remove-Item $zip, "nssm-tmp" -Recurse -Force
+          Invoke-WebRequest -Uri "https://nssm.cc/release/nssm-2.24.zip" -OutFile nssm.zip -UseBasicParsing
+          Expand-Archive nssm.zip nssm-tmp
+          New-Item -ItemType Directory -Force -Path installer\runtimes | Out-Null
+          Copy-Item nssm-tmp\nssm-2.24\win64\nssm.exe installer\runtimes\nssm.exe
+          Copy-Item nssm-tmp\nssm-2.24\win32\nssm.exe installer\runtimes\nssm-x86.exe
+          Remove-Item nssm.zip, nssm-tmp -Recurse -Force
           Write-Host "NSSM ready."
 
-      # ── Copy staged app into installer build area ─────────────────────────────
+      # ── Merge staged app into the repo workspace ─────────────────────────────
       - name: Prepare installer build tree
         shell: pwsh
         run: |
-          # Merge staged files into the installer's expected layout
-          Copy-Item -Recurse -Force "staging\backend\*"           "backend\"
-          Copy-Item -Recurse -Force "staging\frontend\dist"       "frontend\"
+          # backend\ — overwrite src/prisma/scripts with staged (production) versions
+          # node_modules comes entirely from the staged artifact (pruned + Windows Prisma)
+          Write-Host "Copying staged backend..."
+          New-Item -ItemType Directory -Force -Path backend | Out-Null
+          Copy-Item staging\backend\src           backend\src          -Recurse -Force
+          Copy-Item staging\backend\prisma        backend\prisma       -Recurse -Force
+          Copy-Item staging\backend\scripts       backend\scripts      -Recurse -Force
+          Copy-Item staging\backend\node_modules  backend\node_modules -Recurse -Force
+          Copy-Item staging\backend\package.json  backend\package.json -Force
 
-          # Create output directory for the final .exe
-          New-Item -ItemType Directory -Force -Path "dist-installer"
+          Write-Host "Copying staged frontend dist..."
+          New-Item -ItemType Directory -Force -Path frontend\dist | Out-Null
+          Copy-Item staging\frontend\dist\*  frontend\dist\ -Recurse -Force
 
-      # ── Create placeholder LICENSE.txt if not present ─────────────────────────
-      - name: Ensure LICENSE.txt exists
+          Write-Host "Creating dist-installer output directory..."
+          New-Item -ItemType Directory -Force -Path dist-installer | Out-Null
+
+          # Verify expected paths exist before NSIS runs
+          $checks = @(
+            "backend\src\index.js",
+            "backend\node_modules\@prisma\client\package.json",
+            "frontend\dist\index.html",
+            "installer\runtimes\node\node.exe",
+            "installer\runtimes\nssm.exe",
+            "installer\assets\icon_pro.ico"
+          )
+          $ok = $true
+          foreach ($f in $checks) {
+            if (Test-Path $f) { Write-Host "  ✓ $f" }
+            else              { Write-Host "  ✗ MISSING: $f"; $ok = $false }
+          }
+          if (-not $ok) { throw "Pre-flight check failed — required files missing." }
+
+      # ── Ensure LICENSE.txt ───────────────────────────────────────────────────
+      - name: Ensure LICENSE.txt
         shell: pwsh
         run: |
           if (-not (Test-Path "LICENSE.txt")) {
-            "Smart MSL Monitor - (c) Shreyas Industrial. All rights reserved." | Out-File -FilePath "LICENSE.txt" -Encoding utf8
+            "Smart MSL Monitor - Copyright (c) Shreyas Industrial. All rights reserved." |
+              Out-File LICENSE.txt -Encoding utf8
           }
 
-      # ── Ensure installer assets exist ──────────────────────────────────────
-      - name: Ensure installer assets exist
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path "installer\assets"
-          if (-not (Test-Path "installer\assets\icon_pro.ico")) {
-            Write-Host "Warning: icon_pro.ico not found, generating placeholder..."
-            Add-Type -AssemblyName System.Drawing
-            $icon = [System.Drawing.Icon]::ExtractAssociatedIcon("$env:SystemRoot\System32\notepad.exe")
-            $stream = [System.IO.File]::OpenWrite("installer\assets\icon_pro.ico")
-            $icon.Save($stream)
-            $stream.Close()
-          } else {
-            Write-Host "icon_pro.ico found ✓"
-          }
-
-      # ── Compile NSIS installer ────────────────────────────────────────────────
+      # ── Install NSIS 3.09 ────────────────────────────────────────────────────
       - name: Install NSIS
         shell: pwsh
-        run: |
-          choco install nsis --version 3.09 -y --no-progress
-          refreshenv
+        run: choco install nsis --version 3.09 -y --no-progress
 
+      # ── Patch version + compile ──────────────────────────────────────────────
       - name: Compile NSIS installer
         shell: pwsh
         env:
-          APP_VERSION: ${{ steps.version.outputs.version }}
+          APP_VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          # Update version in NSIS script
-          $nsiFile = "installer\smart-msl-monitor.nsi"
-          $content = Get-Content $nsiFile -Raw
-          $content = $content -replace '!define APP_VERSION\s+"[^"]+"', "!define APP_VERSION `"$env:APP_VERSION`""
-          Set-Content $nsiFile $content
+          $nsi = "installer\smart-msl-monitor.nsi"
 
-          # Run NSIS compiler
-          & "C:\Program Files (x86)\NSIS\makensis.exe" /V3 $nsiFile
-          if ($LASTEXITCODE -ne 0) { throw "NSIS compilation failed with exit code $LASTEXITCODE" }
+          # Patch the APP_VERSION define in-place
+          $txt = Get-Content $nsi -Raw
+          $txt = $txt -replace '(!define APP_VERSION\s+")[^"]+(")', "`${1}$env:APP_VERSION`${2}"
+          Set-Content $nsi $txt -Encoding UTF8
+          Write-Host "Patched APP_VERSION to $env:APP_VERSION"
 
-          $exeName = "SmartMSLMonitor-Setup-$env:APP_VERSION.exe"
-          Write-Host "Built: dist-installer\$exeName"
-          if (-not (Test-Path "dist-installer\$exeName")) {
-            throw "Expected installer not found: dist-installer\$exeName"
+          # Compile
+          $makensis = "C:\Program Files (x86)\NSIS\makensis.exe"
+          & $makensis /V3 $nsi
+          if ($LASTEXITCODE -ne 0) {
+            throw "makensis failed with exit code $LASTEXITCODE"
           }
 
-      # ── Get file size for release notes ──────────────────────────────────────
-      - name: Get installer size
-        id: fileinfo
+          $out = "dist-installer\SmartMSLMonitor-Setup-$env:APP_VERSION.exe"
+          if (-not (Test-Path $out)) {
+            throw "Expected output not found: $out"
+          }
+          Write-Host "Installer built: $out ($([math]::Round((Get-Item $out).Length/1MB,1)) MB)"
+
+      # ── Collect output info ──────────────────────────────────────────────────
+      - name: Collect installer info
+        id: info
         shell: pwsh
         run: |
-          $exe = Get-ChildItem "dist-installer\*.exe" | Select-Object -First 1
-          $sizeMB = [math]::Round($exe.Length / 1MB, 1)
-          echo "size=${sizeMB}MB" >> $env:GITHUB_OUTPUT
-          echo "filename=$($exe.Name)" >> $env:GITHUB_OUTPUT
+          $f = Get-ChildItem dist-installer\*.exe | Select-Object -First 1
+          "size=$([math]::Round($f.Length/1MB,1))MB"   >> $env:GITHUB_OUTPUT
+          "filename=$($f.Name)"                         >> $env:GITHUB_OUTPUT
 
-      # ── Upload installer as artifact ─────────────────────────────────────────
+      # ── Upload artifact (available even on manual runs) ──────────────────────
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
@@ -262,38 +255,37 @@ jobs:
           path: dist-installer/*.exe
           retention-days: 30
 
-      # ── Create GitHub Release ─────────────────────────────────────────────────
+      # ── Create GitHub Release (tag pushes only) ──────────────────────────────
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          name: "Smart MSL Monitor v${{ steps.version.outputs.version }}"
+          name: "Smart MSL Monitor v${{ steps.ver.outputs.version }}"
           body: |
-            ## Smart MSL Monitor v${{ steps.version.outputs.version }}
+            ## Smart MSL Monitor v${{ steps.ver.outputs.version }}
 
             ### Installation
-            1. Download `${{ steps.fileinfo.outputs.filename }}` below
+            1. Download **`${{ steps.info.outputs.filename }}`** below
             2. Right-click → **Run as Administrator**
-            3. Follow the setup wizard (takes ~30 seconds)
-            4. The app starts automatically — a shortcut is added to your desktop
+            3. Follow the wizard (~30 seconds) — no other software needed
+            4. A shortcut appears on your desktop — double-click to open the app
 
-            ### What's included
-            - ✅ Bundled Node.js 20 LTS runtime — no separate install needed
-            - ✅ SQLite database — auto-created on first run, zero configuration
-            - ✅ Windows Service (NSSM) — starts on boot, runs without logging in
-            - ✅ WhatsApp & email notifications fire even when you're not at your PC
-            - ✅ WAHA (WhatsApp HTTP API) via Docker — see README for setup
+            ### What's bundled
+            | | |
+            |-|-|
+            | ✅ Node.js 20 LTS | Bundled — no separate install |
+            | ✅ SQLite database | Auto-created on first run |
+            | ✅ Windows Service | Auto-starts on boot via NSSM |
+            | ✅ Notifications | WhatsApp + email fire without opening the app |
 
             ### Requirements
             - Windows 10 / 11 (64-bit)
-            - Administrator rights for initial install only
-            - Docker Desktop (for WhatsApp via WAHA) — optional if only using email
+            - Admin rights for install only
+            - Docker Desktop for WhatsApp (WAHA) — optional, email works standalone
 
-            ### File
             | File | Size |
             |------|------|
-            | `${{ steps.fileinfo.outputs.filename }}` | ${{ steps.fileinfo.outputs.size }} |
-
+            | `${{ steps.info.outputs.filename }}` | ${{ steps.info.outputs.size }} |
           files: dist-installer/*.exe
           draft: false
           prerelease: false
