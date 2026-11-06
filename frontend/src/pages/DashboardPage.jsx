@@ -41,47 +41,43 @@ export default function DashboardPage() {
   return (
     <div className="space-y-5 max-w-7xl mx-auto">
       {/* ── Hero header ──────────────────────────────────────────── */}
-      <div className={clsx(
-        'relative overflow-hidden rounded-card px-6 py-5 shadow-fiori-lg',
-        isDark
-          ? 'bg-gradient-to-br from-[#0A1F44] via-[#0d2a5e] to-[#1a3a6b] text-white'
-          : 'bg-white text-[#1D2D3E] border border-[#D9D9D9]'
-      )}>
-        {/* Decorative accent bar — light mode only */}
-        {!isDark && (
-          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#0070F2] via-[#0057C2] to-[#00B4D8] rounded-t-card" />
+      <div
+        className={clsx(
+          'relative overflow-hidden rounded-card px-6 py-5 shadow-fiori-lg',
+          isDark
+            ? 'bg-gradient-to-br from-[#0A1F44] via-[#0d2a5e] to-[#1a3a6b] text-white'
+            : 'text-white'
         )}
-        {/* Decorative pattern — dark mode only */}
-        {isDark && (
-          <div
-            className="absolute inset-0 opacity-[0.04]"
-            style={{
-              backgroundImage: 'radial-gradient(circle at 25px 25px, white 2%, transparent 0%), radial-gradient(circle at 75px 75px, white 2%, transparent 0%)',
-              backgroundSize: '100px 100px',
-            }}
-          />
-        )}
+        style={!isDark ? {
+          background: 'linear-gradient(135deg, #0A1F44 0%, #0d2a5e 40%, #1565C0 75%, #1976D2 100%)',
+        } : undefined}
+      >
+        {/* Decorative dot pattern — both modes */}
+        <div
+          className="absolute inset-0 opacity-[0.04]"
+          style={{
+            backgroundImage: 'radial-gradient(circle at 25px 25px, white 2%, transparent 0%), radial-gradient(circle at 75px 75px, white 2%, transparent 0%)',
+            backgroundSize: '100px 100px',
+          }}
+        />
+        {/* Glowing accent — bottom right */}
+        <div className="absolute -bottom-10 -right-10 w-48 h-48 rounded-full opacity-10"
+          style={{ background: 'radial-gradient(circle, #60A5FA, transparent 70%)' }} />
 
         <div className="relative flex items-start justify-between gap-4 flex-wrap">
           <div>
             <div className="flex items-center gap-2 mb-1.5">
-              <div className={clsx(
-                'w-6 h-6 rounded-md flex items-center justify-center',
-                isDark ? 'bg-white/10' : 'bg-[#0070F2]/10'
-              )}>
-                <BarChart3 size={13} className={isDark ? 'text-blue-300' : 'text-[#0070F2]'} />
+              <div className="w-6 h-6 rounded-md flex items-center justify-center bg-white/10">
+                <BarChart3 size={13} className="text-blue-300" />
               </div>
-              <span className={clsx(
-                'text-[11px] font-bold uppercase tracking-widest',
-                isDark ? 'text-white/45' : 'text-[#556B82]'
-              )}>
+              <span className="text-[11px] font-bold uppercase tracking-widest text-white/45">
                 Smart MSL Monitor
               </span>
             </div>
-            <h1 className={clsx('text-xl font-bold leading-tight', isDark ? 'text-white' : 'text-[#0A1F44]')}>
+            <h1 className="text-xl font-bold leading-tight text-white">
               {hasAlerts ? '⚠️ Action Required' : '✅ All Systems Normal'}
             </h1>
-            <p className={clsx('text-sm mt-1', isDark ? 'text-white/55' : 'text-[#556B82]')}>
+            <p className="text-sm mt-1 text-white/60">
               {totalActive} active {totalActive === 1 ? 'delivery' : 'deliveries'} ·{' '}
               {kpis
                 ? `${(kpis.belowMin ?? 0) + (kpis.aboveMax ?? 0)} part${(kpis.belowMin ?? 0) + (kpis.aboveMax ?? 0) !== 1 ? 's' : ''} need attention`
@@ -89,12 +85,7 @@ export default function DashboardPage() {
             </p>
           </div>
           <button
-            className={clsx(
-              'flex items-center gap-2 font-bold px-5 py-2.5 rounded-control shadow-fiori text-sm shrink-0 transition-colors',
-              isDark
-                ? 'bg-white text-[#0A1F44] hover:bg-blue-50'
-                : 'bg-[#0070F2] text-white hover:bg-[#0064D9]'
-            )}
+            className="flex items-center gap-2 font-bold px-5 py-2.5 rounded-control shadow-fiori text-sm shrink-0 transition-colors bg-white text-[#0A1F44] hover:bg-blue-50"
             onClick={() => setUploadOpen(true)}
           >
             <Upload size={15} />
@@ -103,52 +94,17 @@ export default function DashboardPage() {
         </div>
 
         {/* Mini-stats row */}
-        <div className={clsx(
-          'relative mt-4 pt-4 flex flex-wrap gap-3',
-          isDark ? 'border-t border-white/10' : 'border-t border-[#E8EDF2]'
-        )}>
+        <div className="relative mt-4 pt-4 flex flex-wrap gap-3 border-t border-white/10">
           {[
-            {
-              label: 'Below MIN',  value: kpis?.belowMin ?? 0,
-              darkColor: 'text-red-300',    darkBg: 'bg-red-500/20',
-              lightColor: 'text-red-600',   lightBg: 'bg-red-50',   lightBorder: 'border-red-200',
-              icon: TrendingDown,
-            },
-            {
-              label: 'Above MAX',  value: kpis?.aboveMax ?? 0,
-              darkColor: 'text-orange-300', darkBg: 'bg-orange-500/20',
-              lightColor: 'text-orange-600', lightBg: 'bg-orange-50', lightBorder: 'border-orange-200',
-              icon: TrendingUp,
-            },
-            {
-              label: 'Due in 7d',  value: kpis?.dueSoon ?? 0,
-              darkColor: 'text-blue-300',   darkBg: 'bg-blue-500/20',
-              lightColor: 'text-[#0070F2]', lightBg: 'bg-blue-50',   lightBorder: 'border-blue-200',
-              icon: Calendar,
-            },
-            {
-              label: 'Sent Today', value: kpis?.remindersToday ?? 0,
-              darkColor: 'text-green-300',  darkBg: 'bg-green-500/20',
-              lightColor: 'text-green-700', lightBg: 'bg-green-50',  lightBorder: 'border-green-200',
-              icon: Bell,
-            },
-          ].map(({ label, value, darkColor, darkBg, lightColor, lightBg, lightBorder, icon: Icon }) => (
-            <div
-              key={label}
-              className={clsx(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-full border',
-                isDark
-                  ? `${darkBg} border-transparent`
-                  : `${lightBg} ${lightBorder}`
-              )}
-            >
-              <Icon size={12} className={isDark ? darkColor : lightColor} />
-              <span className={clsx('text-xs font-semibold', isDark ? 'text-white/85' : lightColor)}>
-                {value}
-              </span>
-              <span className={clsx('text-xs', isDark ? 'text-white/55' : 'text-[#6B7A8D]')}>
-                {label}
-              </span>
+            { label: 'Below MIN',  value: kpis?.belowMin ?? 0,  color: 'text-red-300',    bg: 'bg-red-500/20',    border: 'border-red-400/30',    icon: TrendingDown },
+            { label: 'Above MAX',  value: kpis?.aboveMax ?? 0,  color: 'text-orange-300', bg: 'bg-orange-500/20', border: 'border-orange-400/30', icon: TrendingUp },
+            { label: 'Due in 7d',  value: kpis?.dueSoon ?? 0,   color: 'text-blue-200',   bg: 'bg-blue-500/20',   border: 'border-blue-400/30',   icon: Calendar },
+            { label: 'Sent Today', value: kpis?.remindersToday ?? 0, color: 'text-green-300', bg: 'bg-green-500/20', border: 'border-green-400/30', icon: Bell },
+          ].map(({ label, value, color, bg, border, icon: Icon }) => (
+            <div key={label} className={clsx('flex items-center gap-1.5 px-3 py-1.5 rounded-full border', bg, border)}>
+              <Icon size={12} className={color} />
+              <span className="text-xs font-semibold text-white/90">{value}</span>
+              <span className="text-xs text-white/55">{label}</span>
             </div>
           ))}
         </div>

@@ -77,9 +77,9 @@ export default function ShellBar({ onToggleNav }) {
     'w-9 h-9 flex items-center justify-center rounded-lg transition-colors focus-visible:outline-2',
     isDark
       ? 'hover:bg-white/10 focus-visible:outline-white/50'
-      : 'hover:bg-black/5 focus-visible:outline-[#0070F2]'
+      : 'hover:bg-white/15 focus-visible:outline-white/60'
   );
-  const iconColor = isDark ? 'text-white/75' : 'text-[#1D2D3E]/65';
+  const iconColor = isDark ? 'text-white/75' : 'text-white/80';
 
   return (
     <header
@@ -87,8 +87,11 @@ export default function ShellBar({ onToggleNav }) {
         'h-[56px] shrink-0 z-50 flex items-center px-3 gap-1',
         isDark
           ? 'bg-[#0A1F44] border-b border-white/10 shadow-[0_2px_8px_rgba(0,0,0,0.35)]'
-          : 'bg-white border-b border-[#D9D9D9] shadow-[0_1px_4px_rgba(0,0,0,0.08)]'
+          : 'border-b border-[#1a3a6b]/20 shadow-[0_2px_12px_rgba(0,30,80,0.18)]'
       )}
+      style={!isDark ? {
+        background: 'linear-gradient(135deg, #0A1F44 0%, #0d2a5e 45%, #1a4080 100%)',
+      } : undefined}
       role="banner"
     >
       {/* ── Nav toggle ──────────────────────────────────────────── */}
@@ -115,13 +118,13 @@ export default function ShellBar({ onToggleNav }) {
         <div className="hidden sm:block leading-none">
           <p className={clsx(
             'text-[10px] font-bold tracking-widest uppercase',
-            isDark ? 'text-white/40' : 'text-[#556B82]'
+            isDark ? 'text-white/40' : 'text-white/50'
           )}>
             Shreyas Industrial
           </p>
           <p className={clsx(
             'text-[13px] font-bold tracking-tight mt-0.5',
-            isDark ? 'text-white' : 'text-[#0A1F44]'
+            isDark ? 'text-white' : 'text-white'
           )}>
             Smart MSL Monitor
           </p>
@@ -130,7 +133,7 @@ export default function ShellBar({ onToggleNav }) {
 
       {/* ── Divider ──────────────────────────────────────────────── */}
       <div
-        className={clsx('hidden sm:block w-px h-6 mx-2', isDark ? 'bg-white/15' : 'bg-[#D9D9D9]')}
+        className={clsx('hidden sm:block w-px h-6 mx-2', isDark ? 'bg-white/15' : 'bg-white/20')}
         aria-hidden="true"
       />
 
@@ -146,8 +149,8 @@ export default function ShellBar({ onToggleNav }) {
           failIcon={<WifiOff size={11} />}
           okLabel="Online"
           failLabel="Offline"
-          okClass={isDark ? 'text-green-300 bg-green-500/15' : 'text-green-700 bg-green-50 border border-green-200'}
-          failClass={isDark ? 'text-red-300 bg-red-500/20' : 'text-red-600 bg-red-50 border border-red-200'}
+          okClass={isDark ? 'text-green-300 bg-green-500/15' : 'text-green-300 bg-green-500/20 border border-green-400/30'}
+          failClass={isDark ? 'text-red-300 bg-red-500/20' : 'text-red-300 bg-red-500/25 border border-red-400/30'}
         />
 
         {/* Queued notifications */}
@@ -158,7 +161,7 @@ export default function ShellBar({ onToggleNav }) {
               'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors',
               isDark
                 ? 'text-yellow-300 bg-yellow-500/15 hover:bg-yellow-500/25'
-                : 'text-yellow-700 bg-yellow-50 border border-yellow-200 hover:bg-yellow-100'
+                : 'text-yellow-200 bg-yellow-500/20 border border-yellow-400/30 hover:bg-yellow-500/30'
             )}
             title={`${queuedCount} notification(s) queued`}
           >
@@ -174,15 +177,15 @@ export default function ShellBar({ onToggleNav }) {
           failIcon={<MessageSquare size={11} />}
           okLabel="WhatsApp"
           failLabel="WhatsApp"
-          okClass={isDark ? 'text-green-300 bg-green-500/15' : 'text-green-700 bg-green-50 border border-green-200'}
-          failClass={isDark ? 'text-[#9AA7B4] bg-white/5' : 'text-[#8A9AAD] bg-[#F5F6F7] border border-[#D9D9D9]'}
+          okClass={isDark ? 'text-green-300 bg-green-500/15' : 'text-green-300 bg-green-500/20 border border-green-400/30'}
+          failClass={isDark ? 'text-[#9AA7B4] bg-white/5' : 'text-white/40 bg-white/10 border border-white/15'}
           title={wahaConnected ? 'WhatsApp connected' : 'WhatsApp not connected — configure in Settings'}
         />
       </div>
 
       {/* ── Divider ──────────────────────────────────────────────── */}
       <div
-        className={clsx('hidden md:block w-px h-6 mx-2', isDark ? 'bg-white/15' : 'bg-[#D9D9D9]')}
+        className={clsx('hidden md:block w-px h-6 mx-2', isDark ? 'bg-white/15' : 'bg-white/20')}
         aria-hidden="true"
       />
 
@@ -223,7 +226,7 @@ export default function ShellBar({ onToggleNav }) {
           onClick={() => setUserMenuOpen(o => !o)}
           className={clsx(
             'flex items-center gap-2 pl-2 pr-2.5 py-1.5 rounded-lg transition-colors',
-            isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'
+            isDark ? 'hover:bg-white/10' : 'hover:bg-white/15'
           )}
           aria-label="User menu"
           aria-expanded={userMenuOpen}
@@ -235,10 +238,10 @@ export default function ShellBar({ onToggleNav }) {
             {initials}
           </div>
           <div className="hidden lg:block text-left">
-            <p className={clsx('text-[13px] font-semibold leading-none truncate max-w-[120px]', isDark ? 'text-white' : 'text-[#1D2D3E]')}>
+            <p className={clsx('text-[13px] font-semibold leading-none truncate max-w-[120px]', isDark ? 'text-white' : 'text-white')}>
               {user?.displayName || user?.username || 'User'}
             </p>
-            <p className={clsx('text-[10px] mt-0.5 truncate max-w-[120px]', isDark ? 'text-white/45' : 'text-[#556B82]')}>
+            <p className={clsx('text-[10px] mt-0.5 truncate max-w-[120px]', isDark ? 'text-white/45' : 'text-white/55')}>
               {user?.role === 'admin' ? 'Administrator' : 'User'}
             </p>
           </div>
@@ -247,7 +250,7 @@ export default function ShellBar({ onToggleNav }) {
             className={clsx(
               'transition-transform duration-150',
               userMenuOpen ? 'rotate-180' : '',
-              isDark ? 'text-white/50' : 'text-[#8A9AAD]'
+              isDark ? 'text-white/50' : 'text-white/50'
             )}
           />
         </button>
