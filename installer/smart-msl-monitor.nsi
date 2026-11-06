@@ -1,6 +1,6 @@
 ; ═══════════════════════════════════════════════════════════════════════════════
 ; Smart MSL Monitor – NSIS Installer
-; Bundles: Node.js 20 portable, backend (+ node_modules), built frontend, NSSM
+; Bundles: Node.js 20 portable, backend + node_modules, built frontend, NSSM
 ; Requires: NSIS 3.x  (no extra plug-ins needed)
 ; ═══════════════════════════════════════════════════════════════════════════════
 
@@ -15,12 +15,12 @@ SetCompressor /SOLID lzma
 !define APP_ICON    "assets\icon_pro.ico"
 !define PUBLISHER   "Shreyas Industrial"
 
-; ── Service settings ──────────────────────────────────────────────────────────
+; ── Service ───────────────────────────────────────────────────────────────────
 !define SVC_NAME    "SmartMSLMonitor"
 !define SVC_DISPLAY "Smart MSL Monitor Service"
 !define SVC_DESC    "Runs the Smart MSL Monitor backend. Sends WhatsApp and email notifications automatically."
 
-; ── Registry key ──────────────────────────────────────────────────────────────
+; ── Registry ──────────────────────────────────────────────────────────────────
 !define REG_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_SHORT}"
 
 ; ─────────────────────────────────────────────────────────────────────────────
@@ -32,15 +32,14 @@ SetCompressor /SOLID lzma
 ; ─────────────────────────────────────────────────────────────────────────────
 ; MUI Pages
 ; ─────────────────────────────────────────────────────────────────────────────
+!define MUI_FINISHPAGE_RUN
+!define MUI_FINISHPAGE_RUN_TEXT "Open Smart MSL Monitor in browser"
+!define MUI_FINISHPAGE_RUN_FUNCTION LaunchApp
+
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_LICENSE "..\LICENSE.txt"
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
-
-; Finish page – offer to open the app
-!define MUI_FINISHPAGE_RUN
-!define MUI_FINISHPAGE_RUN_TEXT   "Open Smart MSL Monitor in browser"
-!define MUI_FINISHPAGE_RUN_FUNCTION LaunchApp
 !insertmacro MUI_PAGE_FINISH
 
 !insertmacro MUI_UNPAGE_CONFIRM
@@ -66,18 +65,19 @@ Icon              "${APP_ICON}"
 Section "Main Application" SecMain
   SectionIn RO
 
-  ; ── Stop existing service if upgrading ────────────────────────────────────
-  ; Use a runtime variable so $INSTDIR is resolved at run time, not compile time
-  StrCpy $0 "$INSTDIR\runtime\nssm.exe"
-  nsExec::ExecToStack '"$0" stop ${SVC_NAME}'
-  Pop $1   ; exit code (ignored – service may not exist yet)
+  ; Store NSSM path in a variable (runtime value — cannot use !define with $INSTDIR)
+  StrCpy $R0 "$INSTDIR\runtime\nssm.exe"
+
+  ; Stop existing service if upgrading
+  nsExec::ExecToStack '"$R0" stop ${SVC_NAME}'
+  Pop $0
   Sleep 1500
 
-  ; ── Copy backend source + node_modules ────────────────────────────────────
+  ; ── Copy backend (source + node_modules) ──────────────────────────────────
   SetOutPath "$INSTDIR"
   File /r /x "*.log" "..\backend\*"
 
-  ; ── Copy built frontend ────────────────────────────────────────────────────
+  ; ── Copy built frontend SPA ────────────────────────────────────────────────
   SetOutPath "$INSTDIR\frontend\dist"
   File /r "..\frontend\dist\*"
 
@@ -85,93 +85,81 @@ Section "Main Application" SecMain
   SetOutPath "$INSTDIR\runtime\node"
   File /r "runtimes\node\*"
 
-  ; ── Copy NSSM service manager ─────────────────────────────────────────────
+  ; ── Copy NSSM ─────────────────────────────────────────────────────────────
   SetOutPath "$INSTDIR\runtime"
   File "runtimes\nssm.exe"
   File /oname=nssm-x86.exe "runtimes\nssm-x86.exe"
 
-  ; ── Copy application icon ─────────────────────────────────────────────────
+  ; ── Copy icon ─────────────────────────────────────────────────────────────
   SetOutPath "$INSTDIR\assets"
   File "assets\icon_pro.ico"
   File "assets\icon_pro-512.png"
 
-  ; ── Create data directories in %APPDATA% ──────────────────────────────────
+  ; ── Create data directories ────────────────────────────────────────────────
   CreateDirectory "$APPDATA\${APP_SHORT}"
   CreateDirectory "$APPDATA\${APP_SHORT}\data"
   CreateDirectory "$APPDATA\${APP_SHORT}\uploads"
   CreateDirectory "$APPDATA\${APP_SHORT}\backups"
   CreateDirectory "$APPDATA\${APP_SHORT}\logs"
 
-  ; ── Run first-time database setup ─────────────────────────────────────────
-  DetailPrint "Setting up database (first run)..."
+  ; ── First-run database setup ───────────────────────────────────────────────
+  DetailPrint "Setting up database..."
   SetOutPath "$INSTDIR"
-  nsExec::ExecToLog \
-    '"$INSTDIR\runtime\node\node.exe" \
-     "scripts\firstrun.js"'
+  nsExec::ExecToLog '"$INSTDIR\runtime\node\node.exe" "scripts\firstrun.js"'
   Pop $0
   ${If} $0 != 0
-    MessageBox MB_ICONSTOP \
-      "Database setup failed (exit code $0).$\n$\nCheck logs and try re-running the installer."
+    MessageBox MB_ICONSTOP "Database setup failed (exit $0).$\nCheck logs and re-run the installer."
     Abort
   ${EndIf}
   DetailPrint "Database ready."
 
-  ; ── Install Windows Service via NSSM ──────────────────────────────────────
+  ; ── Install Windows Service ────────────────────────────────────────────────
   DetailPrint "Installing Windows Service..."
-  StrCpy $0 "$INSTDIR\runtime\nssm.exe"
 
-  ; Remove any old service first (upgrade path)
-  nsExec::ExecToLog '"$0" remove ${SVC_NAME} confirm'
+  ; Remove old service first (clean upgrade)
+  nsExec::ExecToLog '"$R0" remove ${SVC_NAME} confirm'
 
-  nsExec::ExecToLog '"$0" install ${SVC_NAME} "$INSTDIR\runtime\node\node.exe"'
-  nsExec::ExecToLog '"$0" set ${SVC_NAME} AppDirectory     "$INSTDIR"'
-  nsExec::ExecToLog '"$0" set ${SVC_NAME} AppParameters    "src\index.js"'
-  nsExec::ExecToLog '"$0" set ${SVC_NAME} DisplayName      "${SVC_DISPLAY}"'
-  nsExec::ExecToLog '"$0" set ${SVC_NAME} Description      "${SVC_DESC}"'
-  nsExec::ExecToLog '"$0" set ${SVC_NAME} Start            SERVICE_AUTO_START'
-  nsExec::ExecToLog '"$0" set ${SVC_NAME} AppEnvironmentExtra \
-    "NODE_ENV=production" \
-    "MSL_DATA_DIR=$APPDATA\${APP_SHORT}\data"'
-  nsExec::ExecToLog '"$0" set ${SVC_NAME} AppStdout        "$APPDATA\${APP_SHORT}\logs\service.log"'
-  nsExec::ExecToLog '"$0" set ${SVC_NAME} AppStderr        "$APPDATA\${APP_SHORT}\logs\service-error.log"'
-  nsExec::ExecToLog '"$0" set ${SVC_NAME} AppRotateFiles   1'
-  nsExec::ExecToLog '"$0" set ${SVC_NAME} AppRotateBytes   5242880'
-  nsExec::ExecToLog '"$0" set ${SVC_NAME} AppExit          Default Restart'
-  nsExec::ExecToLog '"$0" set ${SVC_NAME} AppRestartDelay  5000'
+  nsExec::ExecToLog '"$R0" install ${SVC_NAME} "$INSTDIR\runtime\node\node.exe"'
+  nsExec::ExecToLog '"$R0" set ${SVC_NAME} AppDirectory "$INSTDIR"'
+  nsExec::ExecToLog '"$R0" set ${SVC_NAME} AppParameters "src\index.js"'
+  nsExec::ExecToLog '"$R0" set ${SVC_NAME} DisplayName "${SVC_DISPLAY}"'
+  nsExec::ExecToLog '"$R0" set ${SVC_NAME} Description "${SVC_DESC}"'
+  nsExec::ExecToLog '"$R0" set ${SVC_NAME} Start SERVICE_AUTO_START'
+  nsExec::ExecToLog '"$R0" set ${SVC_NAME} AppEnvironmentExtra "NODE_ENV=production" "MSL_DATA_DIR=$APPDATA\${APP_SHORT}\data"'
+  nsExec::ExecToLog '"$R0" set ${SVC_NAME} AppStdout "$APPDATA\${APP_SHORT}\logs\service.log"'
+  nsExec::ExecToLog '"$R0" set ${SVC_NAME} AppStderr "$APPDATA\${APP_SHORT}\logs\service-error.log"'
+  nsExec::ExecToLog '"$R0" set ${SVC_NAME} AppRotateFiles 1'
+  nsExec::ExecToLog '"$R0" set ${SVC_NAME} AppRotateBytes 5242880'
+  nsExec::ExecToLog '"$R0" set ${SVC_NAME} AppExit Default Restart'
+  nsExec::ExecToLog '"$R0" set ${SVC_NAME} AppRestartDelay 5000'
 
-  ; ── Start the service ──────────────────────────────────────────────────────
+  ; Start the service
   DetailPrint "Starting service..."
-  nsExec::ExecToLog '"$0" start ${SVC_NAME}'
-  Pop $1
-  ${If} $1 != 0
-    DetailPrint "Warning: service did not start immediately (may start after reboot)."
+  nsExec::ExecToLog '"$R0" start ${SVC_NAME}'
+  Pop $0
+  ${If} $0 != 0
+    DetailPrint "Note: service will start on next reboot."
   ${Else}
-    DetailPrint "Service started successfully."
+    DetailPrint "Service started."
   ${EndIf}
 
-  ; ── Write browser-launcher VBS ────────────────────────────────────────────
+  ; ── Create browser-launcher VBS ───────────────────────────────────────────
   SetOutPath "$INSTDIR"
-  FileOpen  $R0 "$INSTDIR\open-app.vbs" w
-  FileWrite $R0 "Set sh = CreateObject($\"WScript.Shell$")$\r$\n"
-  FileWrite $R0 "sh.Run $\"explorer http://localhost:4000$\", 1, False$\r$\n"
-  FileClose $R0
+  FileOpen $R1 "$INSTDIR\open-app.vbs" w
+  FileWrite $R1 "Set sh = CreateObject($\"WScript.Shell$")"
+  FileWrite $R1 "$\r$\n"
+  FileWrite $R1 "sh.Run $\"explorer http://localhost:4000$\", 1, False"
+  FileWrite $R1 "$\r$\n"
+  FileClose $R1
 
-  ; ── Desktop + Start Menu shortcuts ────────────────────────────────────────
-  CreateShortcut \
-    "$DESKTOP\${APP_NAME}.lnk" \
-    "$INSTDIR\open-app.vbs" "" \
-    "$INSTDIR\assets\icon_pro.ico" 0 SW_SHOWMINIMIZED
+  ; ── Shortcuts ─────────────────────────────────────────────────────────────
+  CreateShortcut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\open-app.vbs" "" "$INSTDIR\assets\icon_pro.ico" 0 SW_SHOWMINIMIZED
 
   CreateDirectory "$SMPROGRAMS\${APP_NAME}"
-  CreateShortcut \
-    "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" \
-    "$INSTDIR\open-app.vbs" "" \
-    "$INSTDIR\assets\icon_pro.ico" 0 SW_SHOWMINIMIZED
-  CreateShortcut \
-    "$SMPROGRAMS\${APP_NAME}\Uninstall ${APP_NAME}.lnk" \
-    "$INSTDIR\Uninstall.exe"
+  CreateShortcut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" "$INSTDIR\open-app.vbs" "" "$INSTDIR\assets\icon_pro.ico" 0 SW_SHOWMINIMIZED
+  CreateShortcut "$SMPROGRAMS\${APP_NAME}\Uninstall.lnk" "$INSTDIR\Uninstall.exe"
 
-  ; ── Registry (Add / Remove Programs) ──────────────────────────────────────
+  ; ── Add/Remove Programs registry ──────────────────────────────────────────
   WriteRegStr   HKLM "${REG_KEY}" "DisplayName"     "${APP_NAME}"
   WriteRegStr   HKLM "${REG_KEY}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegStr   HKLM "${REG_KEY}" "InstallLocation" "$INSTDIR"
@@ -182,7 +170,6 @@ Section "Main Application" SecMain
   WriteRegDWORD HKLM "${REG_KEY}" "NoRepair"        1
 
   WriteUninstaller "$INSTDIR\Uninstall.exe"
-
   DetailPrint "Installation complete."
 SectionEnd
 
@@ -190,33 +177,25 @@ SectionEnd
 ; Uninstall Section
 ; ─────────────────────────────────────────────────────────────────────────────
 Section "Uninstall"
-  ; Stop and remove the service
-  StrCpy $0 "$INSTDIR\runtime\nssm.exe"
-  nsExec::ExecToLog '"$0" stop    ${SVC_NAME}'
-  Sleep 2000
-  nsExec::ExecToLog '"$0" remove  ${SVC_NAME} confirm'
+  StrCpy $R0 "$INSTDIR\runtime\nssm.exe"
 
-  ; Ask whether to keep user data
-  MessageBox MB_YESNO \
-    "Delete all app data (database, uploads, backups)?$\n$\nChoose No to keep your data." \
-    IDYES wipeData IDNO keepData
+  nsExec::ExecToLog '"$R0" stop ${SVC_NAME}'
+  Sleep 2000
+  nsExec::ExecToLog '"$R0" remove ${SVC_NAME} confirm'
+
+  MessageBox MB_YESNO "Delete all app data (database, uploads, backups)?$\n$\nChoose No to keep your data." IDYES wipeData IDNO keepData
   wipeData:
     RMDir /r "$APPDATA\${APP_SHORT}"
   keepData:
 
-  ; Remove app files
   RMDir /r "$INSTDIR"
-
-  ; Remove shortcuts
   Delete "$DESKTOP\${APP_NAME}.lnk"
   RMDir /r "$SMPROGRAMS\${APP_NAME}"
-
-  ; Remove registry
   DeleteRegKey HKLM "${REG_KEY}"
 SectionEnd
 
 ; ─────────────────────────────────────────────────────────────────────────────
-; Helper function – open browser on finish page
+; Finish page helper
 ; ─────────────────────────────────────────────────────────────────────────────
 Function LaunchApp
   ExecShell "open" "${APP_URL}"
