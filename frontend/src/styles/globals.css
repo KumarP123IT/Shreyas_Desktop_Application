@@ -43,7 +43,7 @@ body {
 
   /* Cards */
   .fiori-card {
-    @apply bg-surface rounded-card shadow-fiori border border-border;
+    @apply bg-surface rounded-card shadow-fiori border border-[#E2E8F0];
   }
   .dark .fiori-card {
     background-color: #1A2D42;

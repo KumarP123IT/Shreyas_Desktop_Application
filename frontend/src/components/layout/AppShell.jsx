@@ -7,7 +7,7 @@ export default function AppShell() {
   const [navCollapsed, setNavCollapsed] = useState(false);
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-[#F5F6F7] dark:bg-[#0D1B2A] transition-colors duration-200" style={{ '--shell-height': '56px' }}>
+    <div className="flex flex-col h-screen overflow-hidden bg-[#F5F6F7] dark:bg-[#0D1B2A] transition-colors duration-200" style={{ '--shell-height': '59px' }}>
       <ShellBar onToggleNav={() => setNavCollapsed(c => !c)} />
 
       <div className="flex flex-1 overflow-hidden">
