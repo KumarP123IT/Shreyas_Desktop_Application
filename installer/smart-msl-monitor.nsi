@@ -143,14 +143,9 @@ Section "Main Application" SecMain
     DetailPrint "Service started."
   ${EndIf}
 
-  ; ── Create browser-launcher VBS ───────────────────────────────────────────
+  ; ── Copy browser-launcher VBS (bundled as static file) ───────────────────
   SetOutPath "$INSTDIR"
-  FileOpen $R1 "$INSTDIR\open-app.vbs" w
-  FileWrite $R1 "Set sh = CreateObject($\"WScript.Shell$")"
-  FileWrite $R1 "$\r$\n"
-  FileWrite $R1 "sh.Run $\"explorer http://localhost:4000$\", 1, False"
-  FileWrite $R1 "$\r$\n"
-  FileClose $R1
+  File "open-app.vbs"
 
   ; ── Shortcuts ─────────────────────────────────────────────────────────────
   CreateShortcut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\open-app.vbs" "" "$INSTDIR\assets\icon_pro.ico" 0 SW_SHOWMINIMIZED
