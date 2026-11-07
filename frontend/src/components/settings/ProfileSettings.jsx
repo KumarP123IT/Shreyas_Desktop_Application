@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Save, KeyRound, User as UserIcon } from 'lucide-react';
+import { Save, KeyRound, User as UserIcon, AlertTriangle } from 'lucide-react';
 import { authApi } from '@/api/auth';
 import { useAuthStore } from '@/store/authStore';
 import { useToast } from '@/components/ui/Toast';
@@ -10,6 +11,9 @@ export default function ProfileSettings() {
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
+  const [searchParams] = useSearchParams();
+
+  const mustChange = user?.mustChangePassword || searchParams.get('mustChange') === '1';
 
   const [profile, setProfile] = useState({ displayName: '', email: '' });
   const [pw, setPw] = useState({ currentPassword: '', newPassword: '', confirm: '' });
@@ -37,8 +41,10 @@ export default function ProfileSettings() {
   const pwMutation = useMutation({
     mutationFn: () => authApi.changePassword({ currentPassword: pw.currentPassword, newPassword: pw.newPassword }),
     onSuccess: () => {
-      toast.success('Password changed');
+      toast.success('Password changed successfully');
       setPw({ currentPassword: '', newPassword: '', confirm: '' });
+      // Clear the mustChangePassword flag from the local store
+      setUser({ ...user, mustChangePassword: false });
     },
     onError: (e) => toast.error(e.response?.data?.error?.message || 'Password change failed'),
   });
@@ -47,6 +53,20 @@ export default function ProfileSettings() {
 
   return (
     <div className="space-y-6 max-w-xl">
+
+      {/* Force-change banner */}
+      {mustChange && (
+        <div className="flex items-start gap-3 px-4 py-3 rounded-control border border-yellow-300 bg-yellow-50 text-yellow-800">
+          <AlertTriangle size={16} className="shrink-0 mt-0.5 text-yellow-600" />
+          <div>
+            <p className="text-sm font-semibold">You must change your password before continuing.</p>
+            <p className="text-xs mt-0.5 text-yellow-700">
+              This is a first-run generated password. Set a new one below and you'll be taken to the dashboard.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div>
         <h2 className="text-base font-semibold text-text flex items-center gap-2">
           <UserIcon size={16} className="text-primary" /> Profile
@@ -54,30 +74,33 @@ export default function ProfileSettings() {
         <p className="text-sm text-text-secondary mt-0.5">Signed in as {user?.username}.</p>
       </div>
 
-      <div className="space-y-3">
-        <div>
-          <label className="fiori-label" htmlFor="pf-name">Display name</label>
-          <input id="pf-name" className="fiori-input" value={profile.displayName}
-            onChange={(e) => setProfile({ ...profile, displayName: e.target.value })} />
+      {/* Profile fields — hidden while force-change is active */}
+      {!mustChange && (
+        <div className="space-y-3">
+          <div>
+            <label className="fiori-label" htmlFor="pf-name">Display name</label>
+            <input id="pf-name" className="fiori-input" value={profile.displayName}
+              onChange={(e) => setProfile({ ...profile, displayName: e.target.value })} />
+          </div>
+          <div>
+            <label className="fiori-label" htmlFor="pf-email">Email</label>
+            <input id="pf-email" type="email" className="fiori-input" value={profile.email}
+              onChange={(e) => setProfile({ ...profile, email: e.target.value })} />
+          </div>
+          <button className="fiori-btn-primary flex items-center gap-1.5" onClick={() => profileMutation.mutate()} disabled={profileMutation.isPending}>
+            <Save size={14} /> {profileMutation.isPending ? 'Saving…' : 'Save Profile'}
+          </button>
         </div>
-        <div>
-          <label className="fiori-label" htmlFor="pf-email">Email</label>
-          <input id="pf-email" type="email" className="fiori-input" value={profile.email}
-            onChange={(e) => setProfile({ ...profile, email: e.target.value })} />
-        </div>
-        <button className="fiori-btn-primary flex items-center gap-1.5" onClick={() => profileMutation.mutate()} disabled={profileMutation.isPending}>
-          <Save size={14} /> {profileMutation.isPending ? 'Saving…' : 'Save Profile'}
-        </button>
-      </div>
+      )}
 
       <div className="border-t border-border pt-4 space-y-3">
         <h3 className="text-sm font-semibold text-text flex items-center gap-2">
-          <KeyRound size={15} className="text-primary" /> Change password
+          <KeyRound size={15} className="text-primary" /> {mustChange ? 'Set your new password' : 'Change password'}
         </h3>
         <div>
           <label className="fiori-label" htmlFor="pw-cur">Current password</label>
           <input id="pw-cur" type="password" className="fiori-input" value={pw.currentPassword}
-            onChange={(e) => setPw({ ...pw, currentPassword: e.target.value })} autoComplete="current-password" />
+            onChange={(e) => setPw({ ...pw, currentPassword: e.target.value })} autoComplete="current-password" autoFocus={mustChange} />
         </div>
         <div>
           <label className="fiori-label" htmlFor="pw-new">New password</label>

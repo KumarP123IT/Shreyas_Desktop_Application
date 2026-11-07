@@ -88,6 +88,7 @@ async function login({ usernameOrEmail, password, rememberMe = false }) {
       username: user.username,
       email: user.email,
       displayName: user.displayName,
+      mustChangePassword: user.mustChangePassword ?? false,
     },
   };
 }
@@ -107,7 +108,10 @@ async function changePassword(userId, { currentPassword, newPassword }) {
   }
 
   const hash = await bcrypt.hash(newPassword, 12);
-  await prisma.user.update({ where: { id: userId }, data: { passwordHash: hash } });
+  await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash: hash, mustChangePassword: false },
+  });
 
   logger.info({ userId }, 'Password changed');
 }

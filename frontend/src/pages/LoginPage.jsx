@@ -58,8 +58,14 @@ export default function LoginPage() {
   const loginMutation = useMutation({
     mutationFn: (data) => authApi.login(data),
     onSuccess: (res) => {
-      setUser(res.data.data.user);
-      navigate('/dashboard', { replace: true });
+      const user = res.data.data.user;
+      setUser(user);
+      // Force password change before anything else
+      if (user.mustChangePassword) {
+        navigate('/settings/profile?mustChange=1', { replace: true });
+      } else {
+        navigate('/dashboard', { replace: true });
+      }
     },
     onError: (err) => {
       const msg = err.response?.data?.error?.message || 'Login failed. Please try again.';

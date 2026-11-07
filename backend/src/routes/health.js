@@ -6,6 +6,8 @@
 
 const { Router } = require('express');
 const prisma = require('../config/prisma');
+const settingsRepo = require('../repositories/settingsRepository');
+const { authenticate } = require('../middleware/auth');
 const logger = require('../config/logger');
 const asyncHandler = require('../utils/asyncHandler');
 
@@ -84,8 +86,15 @@ async function getLastBackup() {
   }
 }
 
+// Minimal public ping — safe for uptime monitors, no internals exposed
+router.get('/ping', (req, res) => {
+  res.json({ ok: true, ts: new Date().toISOString() });
+});
+
+// Full health detail — requires authentication
 router.get(
   '/',
+  authenticate,
   asyncHandler(async (req, res) => {
     const scheduler = require('../workers/scheduler');
     const [db, internet, waha, smtp, outbox, backup] = await Promise.allSettled([
@@ -111,8 +120,8 @@ router.get(
           lastTick:  schedStatus.lastTick,
           isRunning: schedStatus.isRunning,
         },
-        waha:  val(waha,  { status: 'error' }),
-        smtp:  val(smtp,  { status: 'error' }),
+        waha:   val(waha,   { status: 'error' }),
+        smtp:   val(smtp,   { status: 'error' }),
         backup: val(backup, { status: 'unknown' }),
       },
       outbox: val(outbox, { pending: null, failed: null }),

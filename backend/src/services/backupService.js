@@ -88,6 +88,7 @@ async function pruneOldBackups() {
 
 /**
  * Restore from a backup (replaces current DB file).
+ * Steps: integrity check → pre-restore snapshot → copy → reconnect.
  * Very destructive – only used when user explicitly requests it.
  */
 async function restoreBackup(filePath) {
@@ -96,13 +97,44 @@ async function restoreBackup(filePath) {
     throw new Error('Backup file not found or outside backup directory');
   }
   const destPath = getDbFilePath();
-  // Disconnect Prisma so the file is not locked on Windows
+
+  // 1. Integrity check on the backup file using a temporary Prisma connection
+  const { PrismaClient } = require('@prisma/client');
+  const tempPrisma = new PrismaClient({
+    datasources: { db: { url: `file:${resolved}` } },
+  });
+  try {
+    const rows = await tempPrisma.$queryRaw`PRAGMA integrity_check`;
+    const result = rows?.[0]?.integrity_check;
+    if (result !== 'ok') throw new Error(`Integrity check failed: ${result}`);
+  } finally {
+    await tempPrisma.$disconnect();
+  }
+
+  // 2. Take a safety snapshot of the current DB before overwriting
+  const ts       = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const safetyPath = path.join(BACKUP_DIR, `pre-restore_${ts}.db`);
+  if (fs.existsSync(destPath)) {
+    fs.copyFileSync(destPath, safetyPath);
+    logger.info({ safetyPath }, 'Pre-restore snapshot created');
+  }
+
+  // 3. Disconnect Prisma (release file lock on Windows), copy, reconnect
   await prisma.$disconnect();
-  fs.copyFileSync(resolved, destPath);
-  logger.warn({ filePath }, 'Database restored from backup');
-  // Reconnect
+  try {
+    fs.copyFileSync(resolved, destPath);
+    logger.warn({ filePath, safetyPath }, 'Database restored from backup');
+  } catch (e) {
+    // Attempt rollback from safety snapshot
+    if (fs.existsSync(safetyPath)) {
+      fs.copyFileSync(safetyPath, destPath);
+      logger.error({ err: e }, 'Restore failed — rolled back to pre-restore snapshot');
+    }
+    await prisma.$connect();
+    throw e;
+  }
   await prisma.$connect();
-  return { ok: true };
+  return { ok: true, safetySnapshot: safetyPath };
 }
 
 module.exports = { runBackup, listBackups, restoreBackup };

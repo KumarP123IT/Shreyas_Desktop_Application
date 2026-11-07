@@ -193,7 +193,7 @@ async function enqueueReminder(reminder) {
 
   if (!recipient) {
     logger.warn({ reminderId: reminder.id, channel: reminder.channel }, 'No recipient configured – skipping');
-    return;
+    return null;  // caller checks for null to surface visible failure
   }
 
   const daysLeft = delivery.dueDate
@@ -229,7 +229,7 @@ async function enqueueReminder(reminder) {
     body = render(bodyTpl, tokens);
   }
 
-  await enqueue({
+  return await enqueue({
     channel: reminder.channel,
     recipient,
     subject: reminder.channel === 'email'

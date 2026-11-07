@@ -12,9 +12,21 @@ function required(name) {
   return val;
 }
 
+const isProd = (process.env.NODE_ENV || 'development') === 'production';
+
+// In production, secrets MUST be set — fail loudly rather than run insecurely
+if (isProd) {
+  ['JWT_SECRET', 'ENCRYPTION_KEY', 'DATABASE_URL'].forEach((k) => {
+    if (!process.env[k]) {
+      console.error(`[config] FATAL: required env var ${k} is not set`);
+      process.exit(1);
+    }
+  });
+}
+
 const config = {
   env: process.env.NODE_ENV || 'development',
-  isDev: (process.env.NODE_ENV || 'development') === 'development',
+  isDev: !isProd,
 
   server: {
     port: parseInt(process.env.PORT || '4000', 10),

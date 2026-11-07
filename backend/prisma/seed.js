@@ -1,6 +1,6 @@
 /**
  * Prisma seed file – creates:
- *  - Admin user (admin / Admin@1234)
+ *  - Admin user (random generated password, printed once to console)
  *  - Global MSL defaults (Min 100 / Max 500)
  *  - Demo customer: Kirloskar Toyota Textile Machinery Pvt Ltd
  *  - Default reminder rules (10, 5, 3, 1 days before due)
@@ -10,25 +10,56 @@
 
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 
 const prisma = new PrismaClient();
+
+/** Generate a secure random password: 12 chars, mixed case + digits */
+function generatePassword() {
+  const upper  = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const lower  = 'abcdefghjkmnpqrstuvwxyz';
+  const digits = '23456789';
+  const all    = upper + lower + digits;
+  const bytes  = crypto.randomBytes(12);
+  let pw = '';
+  // Guarantee at least one of each class
+  pw += upper[bytes[0] % upper.length];
+  pw += lower[bytes[1] % lower.length];
+  pw += digits[bytes[2] % digits.length];
+  for (let i = 3; i < 12; i++) pw += all[bytes[i] % all.length];
+  // Shuffle
+  return pw.split('').sort(() => Math.random() - 0.5).join('');
+}
 
 async function main() {
   console.log('🌱  Seeding database …');
 
   // ── Admin user ────────────────────────────────────────────────────────────
-  const hash = await bcrypt.hash('Admin@1234', 12);
-  const user = await prisma.user.upsert({
-    where: { username: 'admin' },
-    update: {},
-    create: {
-      username: 'admin',
-      email: 'admin@shreyas.local',
-      passwordHash: hash,
-      displayName: 'Shreyas Admin',
-    },
-  });
-  console.log(`  ✓ User created: ${user.username}`);
+  const existingAdmin = await prisma.user.findUnique({ where: { username: 'admin' } });
+  let adminPassword = null;
+
+  if (!existingAdmin) {
+    adminPassword = generatePassword();
+    const hash = await bcrypt.hash(adminPassword, 12);
+    await prisma.user.create({
+      data: {
+        username: 'admin',
+        email: 'admin@shreyas.local',
+        passwordHash: hash,
+        displayName: 'Shreyas Admin',
+        mustChangePassword: true,   // force change on first login
+      },
+    });
+    console.log(`  ✓ Admin user created`);
+    console.log(`\n  ╔══════════════════════════════════════╗`);
+    console.log(`  ║  FIRST-RUN ADMIN PASSWORD            ║`);
+    console.log(`  ║  Username : admin                    ║`);
+    console.log(`  ║  Password : ${adminPassword.padEnd(24)}║`);
+    console.log(`  ║  (change this on first login)        ║`);
+    console.log(`  ╚══════════════════════════════════════╝\n`);
+  } else {
+    console.log('  ℹ Admin user already exists – skipping password generation');
+  }
 
   // ── Global MSL default ───────────────────────────────────────────────────
   await prisma.mslGlobalDefault.upsert({
@@ -182,7 +213,6 @@ async function main() {
   }
 
   console.log('\n✅  Seeding complete.');
-  console.log('   Login: admin / Admin@1234');
 }
 
 main()

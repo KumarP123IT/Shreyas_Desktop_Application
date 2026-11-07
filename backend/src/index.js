@@ -78,13 +78,22 @@ async function main() {
   }
 
   process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT',  () => shutdown('SIGINT'));  process.on('uncaughtException', (err) => {
-    logger.fatal({ err }, 'Uncaught exception');
-    process.exit(1);
+  process.on('SIGINT',  () => shutdown('SIGINT'));
+
+  // Log uncaught errors but only exit on truly fatal ones.
+  // Baileys (WhatsApp) is known to emit stray rejections — those must NOT
+  // crash the alert service.
+  process.on('uncaughtException', (err) => {
+    logger.error({ err }, 'Uncaught exception — continuing');
+    // Only exit on unrecoverable system errors
+    if (err.code === 'ERR_WORKER_OUT_OF_MEMORY') {
+      logger.fatal({ err }, 'Out of memory — exiting');
+      process.exit(1);
+    }
   });
+
   process.on('unhandledRejection', (reason) => {
-    logger.fatal({ reason }, 'Unhandled promise rejection');
-    process.exit(1);
+    logger.warn({ reason: String(reason) }, 'Unhandled promise rejection — continuing');
   });
 }
 
