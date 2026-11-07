@@ -4,7 +4,7 @@
 
 const prisma = require('../config/prisma');
 const emailService = require('./emailService');
-const wahaService = require('./baileysService');
+const baileysService = require('./baileysService');
 const settingsRepo = require('../repositories/settingsRepository');
 const logger = require('../config/logger');
 const { differenceInDays } = require('date-fns');
@@ -44,7 +44,7 @@ async function sendOutboxItem(item) {
         text: item.body.replace(/<[^>]+>/g, ''),
       });
     } else if (item.channel === 'whatsapp') {
-      const result = await wahaService.sendMessage(item.recipient, item.body);
+      const result = await baileysService.sendMessage(item.recipient, item.body);
       // Record WhatsApp message id if available
       if (result?.id) {
         await prisma.notificationOutbox.update({
@@ -114,15 +114,27 @@ async function processOutbox() {
     const { success, error } = await sendOutboxItem(item);
     const attemptCount = (item.attemptCount || 0) + 1;
 
+    const meta = item.metadata || {};
+
     if (success) {
       await prisma.notificationOutbox.update({
         where: { id: item.id },
         data: { status: 'sent', attemptCount, lastError: null },
       });
 
-      // Write notification log
-      const meta = item.metadata || {};
-      if (meta.deliveryId) {
+      // Update the pre-created log row when present (e.g. MSL breach digest),
+      // otherwise write a fresh notification log.
+      if (meta.logId) {
+        await prisma.notificationLog.update({
+          where: { id: meta.logId },
+          data: {
+            status: 'sent',
+            errorDetail: null,
+            whatsappMsgId: meta.waMessageId || null,
+            sentAt: new Date(),
+          },
+        });
+      } else if (meta.deliveryId) {
         await prisma.notificationLog.create({
           data: {
             deliveryId: meta.deliveryId,
@@ -151,7 +163,17 @@ async function processOutbox() {
         },
       });
 
-      if (meta?.deliveryId) {
+      if (meta?.logId) {
+        // Update the pre-created log row. While the outbox still has retries
+        // left the row stays 'pending'; only a terminal failure marks it failed.
+        await prisma.notificationLog.update({
+          where: { id: meta.logId },
+          data: {
+            status: newStatus === 'failed' ? 'failed' : 'pending',
+            errorDetail: error,
+          },
+        });
+      } else if (meta?.deliveryId) {
         await prisma.notificationLog.create({
           data: {
             deliveryId: meta.deliveryId,
@@ -183,7 +205,10 @@ async function enqueueReminder(reminder) {
       items: { where: { deletedAt: null }, orderBy: { rowOrder: 'asc' } },
     },
   });
-  if (!delivery) return;
+  if (!delivery) {
+    logger.warn({ reminderId: reminder.id }, 'Reminder references missing delivery – skipping');
+    return null;
+  }
 
   const settings = await settingsRepo.getAllDecrypted();
   const recipient =

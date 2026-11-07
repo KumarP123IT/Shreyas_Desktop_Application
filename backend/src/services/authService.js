@@ -122,7 +122,7 @@ async function changePassword(userId, { currentPassword, newPassword }) {
 async function getProfile(userId) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, username: true, email: true, displayName: true, createdAt: true },
+    select: { id: true, username: true, email: true, displayName: true, mustChangePassword: true, createdAt: true },
   });
   if (!user) throw new NotFoundError('User');
   return user;
@@ -139,7 +139,7 @@ async function updateProfile(userId, data) {
   const user = await prisma.user.update({
     where: { id: userId },
     data: allowed,
-    select: { id: true, username: true, email: true, displayName: true },
+    select: { id: true, username: true, email: true, displayName: true, mustChangePassword: true },
   });
   return user;
 }

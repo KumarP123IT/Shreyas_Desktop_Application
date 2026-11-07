@@ -12,6 +12,7 @@
 
 const crypto = require('crypto');
 const config = require('../config');
+const logger = require('../config/logger');
 
 const ALGORITHM  = 'aes-256-gcm';
 const IV_LENGTH  = 12;   // 96-bit IV recommended for GCM
@@ -51,8 +52,11 @@ function decrypt(ciphertext) {
     decipher.setAuthTag(tag);
     try {
       return Buffer.concat([decipher.update(enc), decipher.final()]).toString('utf8');
-    } catch {
-      return null; // tampered or corrupt
+    } catch (e) {
+      // Tampered/corrupt ciphertext OR wrong ENCRYPTION_KEY — never silent,
+      // a bad key makes every stored secret decrypt to null.
+      logger.error({ err: e }, 'GCM decrypt failed — check ENCRYPTION_KEY matches the one used at encrypt time');
+      return null;
     }
   }
 

@@ -38,11 +38,11 @@ The installer registers a **Windows Service** (via NSSM) that:
 - **Forecast upload** — PDF/Excel parsing, KTTM layout adapter, versioning, review screen
 - **Material sheet** — editable grid, per-part MSL status, actual-stock column, per-material due dates
 - **Reminders** — scheduled WhatsApp/email reminders (10/5/3/1 days before due), snooze & reschedule
-- **WhatsApp conversations** — reply `1` (remind later), `2` (new date/time), `3` (delivered) via WAHA
+- **WhatsApp conversations** — reply `1` (remind later), `2` (new date/time), `3` (delivered) via the built-in Baileys client (no Docker needed)
 - **Notifications log** — full history, filters, retry, CSV export
 - **MSL configuration** — global default, per-customer defaults, per-part overrides
 - **Backups** — automatic daily SQLite copy at 02:00, manual backup, download, restore
-- **Health page** — live DB / scheduler / WAHA / SMTP / internet / outbox status
+- **Health page** — live DB / scheduler / WhatsApp / SMTP / internet / outbox status
 
 ---
 
@@ -51,7 +51,7 @@ The installer registers a **Windows Service** (via NSSM) that:
 ### Installer (.exe)
 - Windows 10 / 11 (64-bit)
 - Administrator rights for initial install only
-- Docker Desktop (for WhatsApp via WAHA) — optional if only using email notifications
+- No extra software needed — WhatsApp runs via the built-in Baileys client (no Docker)
 
 ### Developer setup
 - **Node.js** 20 LTS
@@ -86,22 +86,29 @@ npm run dev
 # Backend:  http://localhost:4000
 ```
 
-Default login: **admin / Admin@1234**
+Default login on fresh installs: the admin password is generated at first run
+and written to `backend/storage/initial-admin-credentials.txt` — you will be
+asked to set a new password on first login.
 
 ---
 
-## WhatsApp Setup (WAHA)
+## WhatsApp Setup (Baileys — built-in)
 
-WAHA (WhatsApp HTTP API) runs in Docker. Start it with:
+WhatsApp is handled in-process by the Baileys client — **no Docker, no
+external service**. The backend connects directly to WhatsApp Web.
 
-```bash
-docker compose up -d
-```
+1. Start the app (backend + frontend)
+2. Open **Settings → WhatsApp** in the app
+3. Click **Show QR Code** and scan it with WhatsApp on your phone
+   (WhatsApp → **Linked Devices → Link a Device**)
+4. Session status should turn **WORKING** — use **Send test message** to verify
 
-Then:
-1. Open `http://localhost:3000` (WAHA dashboard)
-2. Scan the QR code with WhatsApp on your phone
-3. In Smart MSL Monitor → Settings → WhatsApp, enter `http://localhost:3000`
+Auth credentials are stored in `backend/storage/wa-auth/` (or under the
+configured storage root) and survive restarts. Replies to reminder messages
+(`1` / `2` / `3`) are handled automatically.
+
+> Migrating from WAHA? Remove `docker-compose.yml` usage — it is no longer
+> needed. The old `waha_*` settings keys are ignored.
 
 ---
 
@@ -188,8 +195,7 @@ smart-msl-monitor/
 ├── installer/            # NSIS installer script + assets
 │   ├── smart-msl-monitor.nsi
 │   └── assets/           # app.ico (place your icon here)
-├── .github/
-│   └── workflows/
-│       └── release.yml   # GitHub Actions build + release
-└── docker-compose.yml    # WAHA (WhatsApp) container only
+└── .github/
+    └── workflows/
+        └── release.yml   # GitHub Actions build + release
 ```

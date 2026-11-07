@@ -11,6 +11,8 @@
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const fs     = require('fs');
+const path   = require('path');
 
 const prisma = new PrismaClient();
 
@@ -21,14 +23,18 @@ function generatePassword() {
   const digits = '23456789';
   const all    = upper + lower + digits;
   const bytes  = crypto.randomBytes(12);
-  let pw = '';
-  // Guarantee at least one of each class
-  pw += upper[bytes[0] % upper.length];
-  pw += lower[bytes[1] % lower.length];
-  pw += digits[bytes[2] % digits.length];
-  for (let i = 3; i < 12; i++) pw += all[bytes[i] % all.length];
-  // Shuffle
-  return pw.split('').sort(() => Math.random() - 0.5).join('');
+  const pw = [
+    upper[bytes[0] % upper.length],
+    lower[bytes[1] % lower.length],
+    digits[bytes[2] % digits.length],
+  ];
+  for (let i = 3; i < 12; i++) pw.push(all[bytes[i] % all.length]);
+  // Cryptographically-secure Fisher–Yates shuffle (Math.random is not safe here)
+  for (let i = pw.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(0, i + 1);
+    [pw[i], pw[j]] = [pw[j], pw[i]];
+  }
+  return pw.join('');
 }
 
 async function main() {
@@ -51,12 +57,23 @@ async function main() {
       },
     });
     console.log(`  ✓ Admin user created`);
-    console.log(`\n  ╔══════════════════════════════════════╗`);
-    console.log(`  ║  FIRST-RUN ADMIN PASSWORD            ║`);
-    console.log(`  ║  Username : admin                    ║`);
-    console.log(`  ║  Password : ${adminPassword.padEnd(24)}║`);
-    console.log(`  ║  (change this on first login)        ║`);
-    console.log(`  ╚══════════════════════════════════════╝\n`);
+
+    // Write credentials to a file — NEVER print the password to stdout.
+    // On installed/service deployments stdout goes to service.log where the
+    // password would sit in plaintext and nobody would see it.
+    const credDir  = path.resolve(__dirname, '..', 'storage');
+    const credFile = path.join(credDir, 'initial-admin-credentials.txt');
+    fs.mkdirSync(credDir, { recursive: true });
+    fs.writeFileSync(credFile,
+      `Smart MSL Monitor – initial admin credentials\n` +
+      `Generated: ${new Date().toISOString()}\n\n` +
+      `Username : admin\n` +
+      `Password : ${adminPassword}\n\n` +
+      `You will be asked to set a new password on first login.\n` +
+      `Delete this file after logging in.\n`,
+      { encoding: 'utf8', mode: 0o600 }
+    );
+    console.log(`  ✓ Admin credentials written to: ${credFile}`);
   } else {
     console.log('  ℹ Admin user already exists – skipping password generation');
   }

@@ -93,7 +93,9 @@ async function main() {
   });
 
   process.on('unhandledRejection', (reason) => {
-    logger.warn({ reason: String(reason) }, 'Unhandled promise rejection — continuing');
+    // Log the full error object so the stack trace isn't lost
+    logger.warn({ err: reason instanceof Error ? reason : new Error(String(reason)) },
+      'Unhandled promise rejection — continuing');
   });
 }
 

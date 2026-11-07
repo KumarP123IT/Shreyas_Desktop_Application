@@ -169,7 +169,8 @@ async function checkMslBreaches() {
     });
 
     const lastKey = existing?.subject?.replace('MSL_BREACH|', '') ?? '';
-    if (existing && lastKey === breachKey) continue; // breach unchanged
+    // Same fingerprint → skip, unless the last attempt failed (then re-alert)
+    if (existing && lastKey === breachKey && existing.status !== 'failed') continue;
 
     const settings = await prisma.appSetting.findMany();
     const settingsMap = Object.fromEntries(settings.map((s) => [s.key, s.value]));
@@ -191,25 +192,25 @@ async function checkMslBreaches() {
 
     const body = `⚠️ MSL Alert – ${delivery.customer?.name}\nMonth: ${delivery.forecastMonth}\n\n${breachLines}${extra}\n\nOpen Smart MSL Monitor to review.`;
 
-    // Enqueue — only mark as "sent" once it's actually in the outbox
-    await notificationService.enqueue({
-      channel: 'whatsapp',
-      recipient,
-      body,
-      metadata: { deliveryId: delivery.id, type: 'msl_breach_digest' },
-    });
-
-    // Record the fingerprint so we can dedup on the next run.
-    // Status is 'pending' until the outbox actually delivers it.
-    await prisma.notificationLog.create({
+    // Create the log row FIRST so the outbox can update this exact row on
+    // send/fail — no orphaned 'pending' entries, and a failed send can be
+    // retried/re-alerted on the next breach check.
+    const logRow = await prisma.notificationLog.create({
       data: {
         deliveryId: delivery.id,
         channel: 'whatsapp',
         recipient,
         subject: `MSL_BREACH|${breachKey}`,   // fingerprint stored here
         body,
-        status: 'pending',                      // not 'sent' — outbox hasn't delivered yet
+        status: 'pending',
       },
+    });
+
+    await notificationService.enqueue({
+      channel: 'whatsapp',
+      recipient,
+      body,
+      metadata: { deliveryId: delivery.id, type: 'msl_breach_digest', logId: logRow.id },
     });
   }
 }

@@ -43,6 +43,8 @@ yarn-error.log*
 backend/storage/uploads/
 backend/storage/backups/
 backend/storage/.firstrun_done
+backend/storage/initial-admin-credentials.txt
+backend/storage/wa-auth/
 
 # Keep the storage directory itself (for README context)
 !backend/storage/.gitkeep

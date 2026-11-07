@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Save, KeyRound, User as UserIcon, AlertTriangle } from 'lucide-react';
 import { authApi } from '@/api/auth';
@@ -12,6 +12,7 @@ export default function ProfileSettings() {
   const user = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   const mustChange = user?.mustChangePassword || searchParams.get('mustChange') === '1';
 
@@ -43,8 +44,12 @@ export default function ProfileSettings() {
     onSuccess: () => {
       toast.success('Password changed successfully');
       setPw({ currentPassword: '', newPassword: '', confirm: '' });
-      // Clear the mustChangePassword flag from the local store
+      // Clear the mustChangePassword flag from the local store, then move on
       setUser({ ...user, mustChangePassword: false });
+      if (mustChange) {
+        toast.success('Password changed — welcome!');
+        navigate('/dashboard', { replace: true });
+      }
     },
     onError: (e) => toast.error(e.response?.data?.error?.message || 'Password change failed'),
   });

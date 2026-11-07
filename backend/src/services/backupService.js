@@ -1,7 +1,6 @@
 /**
- * Backup service – SQLite file copy to /storage/backups, keep last 14.
- * Replaces the old mysqldump approach. Uses fs.copyFile which works
- * on Windows without any external tools.
+ * Backup service – SQLite backups via VACUUM INTO (consistent snapshot,
+ * includes WAL contents), keep last 14. Falls back to checkpoint+copy.
  */
 
 'use strict';
@@ -42,9 +41,17 @@ async function runBackup() {
   }
 
   try {
-    // SQLite WAL checkpoint before copy for consistency
-    await prisma.$executeRawUnsafe('PRAGMA wal_checkpoint(TRUNCATE)');
-    fs.copyFileSync(srcPath, filePath);
+    // VACUUM INTO produces a transactionally-consistent snapshot (folds in
+    // the WAL) without locking the live database the way a raw file copy can.
+    const escaped = filePath.replace(/'/g, "''");
+    try {
+      await prisma.$executeRawUnsafe(`VACUUM INTO '${escaped}'`);
+    } catch (vacuumErr) {
+      // Fallback for SQLite builds without VACUUM INTO
+      logger.warn({ err: vacuumErr.message }, 'VACUUM INTO failed – falling back to file copy');
+      await prisma.$executeRawUnsafe('PRAGMA wal_checkpoint(TRUNCATE)');
+      fs.copyFileSync(srcPath, filePath);
+    }
 
     const sizeBytes = fs.statSync(filePath).size;
     await prisma.backupLog.create({ data: { filePath, sizeBytes, status: 'success' } });
@@ -84,6 +91,17 @@ async function pruneOldBackups() {
       await prisma.backupLog.delete({ where: { id: log.id } });
     } catch (_) { /* ignore */ }
   }
+
+  // Prune old pre-restore safety snapshots — keep the newest 5
+  try {
+    const preRestore = fs.readdirSync(BACKUP_DIR)
+      .filter((f) => f.startsWith('pre-restore_') && f.endsWith('.db'))
+      .map((f) => ({ f, p: path.join(BACKUP_DIR, f), m: fs.statSync(path.join(BACKUP_DIR, f)).mtimeMs }))
+      .sort((a, b) => b.m - a.m);
+    for (const old of preRestore.slice(5)) {
+      try { fs.unlinkSync(old.p); } catch (_) { /* ignore */ }
+    }
+  } catch (_) { /* ignore */ }
 }
 
 /**
@@ -101,7 +119,8 @@ async function restoreBackup(filePath) {
   // 1. Integrity check on the backup file using a temporary Prisma connection
   const { PrismaClient } = require('@prisma/client');
   const tempPrisma = new PrismaClient({
-    datasources: { db: { url: `file:${resolved}` } },
+    // Prisma file: URLs need forward slashes on every platform (Windows too)
+    datasources: { db: { url: `file:${resolved.replace(/\\/g, '/')}` } },
   });
   try {
     const rows = await tempPrisma.$queryRaw`PRAGMA integrity_check`;
@@ -119,9 +138,15 @@ async function restoreBackup(filePath) {
     logger.info({ safetyPath }, 'Pre-restore snapshot created');
   }
 
-  // 3. Disconnect Prisma (release file lock on Windows), copy, reconnect
+  // 3. Disconnect Prisma (release file lock on Windows), remove stale WAL/SHM
+  // sidecars so an old journal isn't replayed onto the restored database,
+  // then copy and reconnect.
   await prisma.$disconnect();
   try {
+    for (const suffix of ['-wal', '-shm']) {
+      const sidecar = destPath + suffix;
+      if (fs.existsSync(sidecar)) fs.rmSync(sidecar, { force: true });
+    }
     fs.copyFileSync(resolved, destPath);
     logger.warn({ filePath, safetyPath }, 'Database restored from backup');
   } catch (e) {
@@ -134,6 +159,7 @@ async function restoreBackup(filePath) {
     throw e;
   }
   await prisma.$connect();
+  await pruneOldBackups().catch(() => {});
   return { ok: true, safetySnapshot: safetyPath };
 }
 

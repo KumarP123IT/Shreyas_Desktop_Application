@@ -147,9 +147,26 @@ try {
   });
   console.log('[firstrun] Seed complete.');
 } catch (err) {
-  // Non-fatal — data may already exist on reinstall
   console.warn('[firstrun] Seed warning (non-fatal):', err.message);
 }
+
+// ── 6b. Verify an admin account exists — without it nobody can log in ─────────
+console.log('[firstrun] Verifying admin account…');
+try {
+  execFileSync(nodeExe, ['-e', `
+    const { PrismaClient } = require('@prisma/client');
+    const p = new PrismaClient();
+    p.user.findUnique({ where: { username: 'admin' } })
+      .then(u => process.exit(u ? 0 : 2))
+      .catch(() => process.exit(3))
+      .finally(() => p.$disconnect());
+  `], { cwd: ROOT, stdio: 'pipe', env: childEnv });
+} catch (err) {
+  console.error('[firstrun] FATAL: no admin user found after seeding.');
+  console.error('[firstrun] Re-run setup or seed manually: node prisma/seed.js');
+  process.exit(1);
+}
+console.log('[firstrun] Admin account verified.');
 
 // ── 7. Write the marker ───────────────────────────────────────────────────────
 fs.mkdirSync(path.dirname(MARKER), { recursive: true });

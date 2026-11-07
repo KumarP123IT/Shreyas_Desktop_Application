@@ -14,11 +14,20 @@ function required(name) {
 
 const isProd = (process.env.NODE_ENV || 'development') === 'production';
 
-// In production, secrets MUST be set — fail loudly rather than run insecurely
+// In production, secrets MUST be set to real values — fail loudly rather
+// than run insecurely. Presence alone isn't enough: the dev placeholders
+// from .env.example must also be rejected.
 if (isProd) {
+  const PLACEHOLDERS = new Set([
+    'dev-secret-change-me',
+    'change-me',
+    'change-me-to-a-long-random-string',
+    '00000000000000000000000000000000',
+  ]);
   ['JWT_SECRET', 'ENCRYPTION_KEY', 'DATABASE_URL'].forEach((k) => {
-    if (!process.env[k]) {
-      console.error(`[config] FATAL: required env var ${k} is not set`);
+    const v = process.env[k];
+    if (!v || PLACEHOLDERS.has(v)) {
+      console.error(`[config] FATAL: ${k} is missing or still set to a placeholder value`);
       process.exit(1);
     }
   });
