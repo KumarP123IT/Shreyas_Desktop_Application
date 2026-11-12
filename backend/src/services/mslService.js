@@ -108,6 +108,57 @@ async function updatePartOverride(id, { minQty, maxQty }) {
   return mslRepo.updatePartOverride(id, { minQty, maxQty });
 }
 
+/**
+ * Batch-resolve MSL ranges for multiple (partNumber, customerId) pairs.
+ * Much more efficient than calling resolve() per item in a loop.
+ * Returns a Map keyed by partNumber (string) with { min, max, source }.
+ * When multiple customers are involved pass distinct calls or extend as needed;
+ * here all items share the same customerId (one delivery = one customer).
+ */
+async function resolveBatch(partNumbers, customerId = null) {
+  const unique = [...new Set(partNumbers)];
+  const result = new Map();
+
+  // Fetch all relevant data in 3 queries instead of 3N
+  const [customerPartOverrides, globalPartOverrides, customerDefault, globalDefault] =
+    await Promise.all([
+      customerId
+        ? mslRepo.getPartOverridesForParts(unique, customerId)
+        : Promise.resolve([]),
+      mslRepo.getPartOverridesForParts(unique, null),
+      customerId ? mslRepo.getCustomerDefault(customerId) : Promise.resolve(null),
+      mslRepo.getGlobalDefault(),
+    ]);
+
+  const custMap = new Map(customerPartOverrides.map((o) => [o.partNumber, o]));
+  const globMap = new Map(globalPartOverrides.map((o) => [o.partNumber, o]));
+
+  for (const partNumber of unique) {
+    if (custMap.has(partNumber)) {
+      const o = custMap.get(partNumber);
+      result.set(partNumber, { min: o.minQty, max: o.maxQty, source: 'part' });
+    } else if (globMap.has(partNumber)) {
+      const o = globMap.get(partNumber);
+      result.set(partNumber, { min: o.minQty, max: o.maxQty, source: 'part' });
+    } else if (customerDefault) {
+      result.set(partNumber, { min: customerDefault.minQty, max: customerDefault.maxQty, source: 'customer' });
+    } else if (globalDefault) {
+      result.set(partNumber, { min: globalDefault.minQty, max: globalDefault.maxQty, source: 'global' });
+    } else {
+      result.set(partNumber, { min: null, max: null, source: null });
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Get a single part override by ID (used by controller for audit log 'before').
+ */
+async function getPartOverrideById(id) {
+  return mslRepo.findPartOverrideById(id);
+}
+
 async function deletePartOverride(id) {
   const existing = await mslRepo.findPartOverrideById(id);
   if (!existing) throw new NotFoundError('Part override');
@@ -164,6 +215,7 @@ function validateRange(minQty, maxQty) {
 
 module.exports = {
   resolve,
+  resolveBatch,
   computeStatus,
   getGlobalDefault,
   setGlobalDefault,
@@ -172,6 +224,7 @@ module.exports = {
   clearCustomerDefault,
   listCustomerDefaults,
   listPartOverrides,
+  getPartOverrideById,
   createPartOverride,
   updatePartOverride,
   deletePartOverride,

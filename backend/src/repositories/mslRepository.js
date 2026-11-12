@@ -93,6 +93,22 @@ async function findPartOverrideById(id) {
   return prisma.mslPartOverride.findFirst({ where: { id, deletedAt: null } });
 }
 
+/**
+ * Batch-fetch overrides for a list of part numbers + one customerId.
+ * Used by mslService.resolveBatch() to avoid per-item queries.
+ * Pass customerId=null to fetch global-scope overrides.
+ */
+async function getPartOverridesForParts(partNumbers, customerId = null) {
+  if (!partNumbers || partNumbers.length === 0) return [];
+  return prisma.mslPartOverride.findMany({
+    where: {
+      partNumber: { in: partNumbers },
+      customerId: customerId ?? null,
+      deletedAt: null,
+    },
+  });
+}
+
 async function upsertPartOverride({ partNumber, customerId, minQty, maxQty }) {
   const existing = await prisma.mslPartOverride.findFirst({
     where: { partNumber, customerId: customerId ?? null, deletedAt: null },
@@ -117,6 +133,7 @@ module.exports = {
   listCustomerDefaults,
   listPartOverrides,
   getPartOverride,
+  getPartOverridesForParts,
   createPartOverride,
   updatePartOverride,
   softDeletePartOverride,

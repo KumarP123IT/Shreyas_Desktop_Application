@@ -326,7 +326,7 @@ jobs:
             ### Requirements
             - Windows 10 / 11 (64-bit)
             - Admin rights for install only
-            - Docker Desktop for WhatsApp (WAHA) — optional, email works standalone
+            - WhatsApp works built-in via Baileys — no Docker needed; email works standalone
 
             | File | Size |
             |------|------|

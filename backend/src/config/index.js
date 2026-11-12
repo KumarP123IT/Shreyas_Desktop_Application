@@ -22,6 +22,9 @@ if (isProd) {
     'dev-secret-change-me',
     'change-me',
     'change-me-to-a-long-random-string',
+    // exact strings from .env.example:
+    'change-me-to-a-long-random-string-at-least-64-chars',
+    'change-me-to-a-unique-random-string',
     '00000000000000000000000000000000',
   ]);
   ['JWT_SECRET', 'ENCRYPTION_KEY', 'DATABASE_URL'].forEach((k) => {
@@ -82,7 +85,10 @@ const config = {
     intervalSec: parseInt(process.env.SCHEDULER_INTERVAL_SEC || '30', 10),
   },
 
-  timezone: 'Asia/Kolkata',
+  // Timezone used for scheduler cron expressions and reminder time calculations.
+  // Reads from APP_TIMEZONE env var first, falls back to 'Asia/Kolkata'.
+  // This should match the 'timezone' key in AppSetting for consistency.
+  timezone: process.env.APP_TIMEZONE || 'Asia/Kolkata',
 };
 
 module.exports = config;

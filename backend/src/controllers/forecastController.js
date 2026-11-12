@@ -1,12 +1,39 @@
 const { z } = require('zod');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const multer = require('multer');
 const config = require('../config');
 const forecastService = require('../services/forecastService');
-const { success } = require('../utils/response');
+const { success, paginated } = require('../utils/response');
 const asyncHandler = require('../utils/asyncHandler');
-const { ValidationError } = require('../utils/errors');
+const { ValidationError, parseId } = require('../utils/errors');
+
+// ── Temp-file token helpers ───────────────────────────────────────────────────
+// The token is HMAC-signed so a user cannot guess or steal another user's
+// upload token. Format: "<basename>.<hmac-hex>"
+
+const TOKEN_SECRET = config.jwt.secret; // reuse JWT secret — both are per-install
+
+function signToken(basename, userId) {
+  return `${basename}.${crypto
+    .createHmac('sha256', TOKEN_SECRET)
+    .update(`${basename}:${userId}`)
+    .digest('hex')}`;
+}
+
+function verifyToken(token, userId) {
+  const dotIdx = token.lastIndexOf('.');
+  if (dotIdx === -1) return null;
+  const basename = token.slice(0, dotIdx);
+  const sig = token.slice(dotIdx + 1);
+  const expected = crypto
+    .createHmac('sha256', TOKEN_SECRET)
+    .update(`${basename}:${userId}`)
+    .digest('hex');
+  if (!crypto.timingSafeEqual(Buffer.from(sig, 'hex'), Buffer.from(expected, 'hex'))) return null;
+  return basename;
+}
 
 // ── Multer config (temp upload) ───────────────────────────────────────────────
 const tempDir = path.join(config.storage.root, 'uploads', '_temp');
@@ -50,9 +77,10 @@ const uploadFile = [
     const fileType = path.extname(req.file.originalname).toLowerCase().replace('.', '');
     const result = await forecastService.parseFile(req.file.path, fileType);
 
-    // Return the temp path as a token (sanitised)
+    // Token is HMAC-signed with userId so another user cannot claim this upload
+    const token = signToken(path.basename(req.file.path), req.user.id);
     success(res, {
-      tempFileToken: path.basename(req.file.path),
+      tempFileToken: token,
       fileName: req.file.originalname,
       fileType,
       ...result,
@@ -67,8 +95,14 @@ const saveForecast = asyncHandler(async (req, res) => {
   if (!customerId) throw new ValidationError('customerId is required');
   if (!tempFileToken) throw new ValidationError('tempFileToken is required');
   if (!rows || !Array.isArray(rows)) throw new ValidationError('rows array is required');
+  if (!Array.isArray(rows) || rows.length === 0) throw new ValidationError('At least one row is required');
+  if (rows.length > 5000) throw new ValidationError('Too many rows (max 5000)');
 
-  const tempFilePath = path.join(config.storage.root, 'uploads', '_temp', path.basename(tempFileToken));
+  // Verify HMAC signature — ensures the token was issued to this user
+  const basename = verifyToken(tempFileToken, req.user.id);
+  if (!basename) throw new ValidationError('Invalid or expired upload token. Please upload again.');
+
+  const tempFilePath = path.join(config.storage.root, 'uploads', '_temp', path.basename(basename));
   if (!fs.existsSync(tempFilePath)) {
     throw new ValidationError('Uploaded file has expired. Please upload again.');
   }
@@ -94,7 +128,7 @@ const saveForecast = asyncHandler(async (req, res) => {
 /** POST /api/forecasts/:id/activate – step 3 */
 const activateForecast = asyncHandler(async (req, res) => {
   const { rows, startDate, dueDate } = req.body;
-  const forecastId = parseInt(req.params.id);
+  const forecastId = parseId(req.params.id);
 
   if (!rows || !Array.isArray(rows)) throw new ValidationError('rows array is required');
 
@@ -109,17 +143,19 @@ const activateForecast = asyncHandler(async (req, res) => {
   success(res, delivery, 201);
 });
 
-/** GET /api/forecasts – list by customer */
+/** GET /api/forecasts – list by customer, paginated */
 const listForecasts = asyncHandler(async (req, res) => {
-  const { customerId } = req.query;
+  const { customerId, page = '1', pageSize = '50' } = req.query;
   if (!customerId) throw new ValidationError('customerId query param required');
-  const forecasts = await forecastService.listForecasts(parseInt(customerId));
-  success(res, forecasts);
+  const pg   = parseInt(page, 10) || 1;
+  const size = Math.min(parseInt(pageSize, 10) || 50, 200);
+  const result = await forecastService.listForecasts(parseId(customerId, 'customerId'), { page: pg, pageSize: size });
+  paginated(res, { ...result, page: pg, pageSize: size });
 });
 
 /** GET /api/forecasts/:id/file – download original */
 const downloadFile = asyncHandler(async (req, res) => {
-  const forecast = await forecastService.getForecast(parseInt(req.params.id));
+  const forecast = await forecastService.getForecast(parseId(req.params.id));
   if (!fs.existsSync(forecast.filePath)) {
     throw new ValidationError('Original file not found on disk');
   }

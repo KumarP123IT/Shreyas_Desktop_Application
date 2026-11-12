@@ -43,6 +43,19 @@ class ConflictError extends AppError {
 }
 
 /**
+ * Parse a string or number as a positive integer.
+ * Throws ValidationError with a clean 400 message if the value is not a valid integer.
+ * Use this instead of bare parseInt() in route handlers.
+ */
+function parseId(value, label = 'ID') {
+  const n = parseInt(value, 10);
+  if (isNaN(n) || n < 1) {
+    throw new ValidationError(`Invalid ${label}: must be a positive integer`);
+  }
+  return n;
+}
+
+/**
  * Express central error handler.
  */
 function errorHandler(err, req, res, next) { // eslint-disable-line no-unused-vars
@@ -76,5 +89,6 @@ module.exports = {
   UnauthorizedError,
   ForbiddenError,
   ConflictError,
+  parseId,
   errorHandler,
 };

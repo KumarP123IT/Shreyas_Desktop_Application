@@ -88,10 +88,10 @@ export default function HealthStatus() {
                 : 'Waiting for first tick'}
             />
             <Chip
-              ok={s.waha?.status === 'ok' || s.waha?.status === 'WORKING'}
-              warn={s.waha?.status === 'SCAN_QR_CODE' || s.waha?.status === 'not_configured'}
-              label="WhatsApp (WAHA)"
-              detail={s.waha?.status === 'not_configured' ? 'Not configured' : (s.waha?.status || s.waha?.message || 'unknown')}
+              ok={s.whatsapp?.status === 'ok' || s.whatsapp?.status === 'WORKING'}
+              warn={s.whatsapp?.status === 'SCAN_QR_CODE' || s.whatsapp?.status === 'not_configured'}
+              label="WhatsApp"
+              detail={s.whatsapp?.status === 'not_configured' ? 'Not configured' : (s.whatsapp?.status || s.whatsapp?.message || 'unknown')}
             />
             <Chip
               ok={s.smtp?.status === 'ok'} warn={s.smtp?.status === 'not_configured'}

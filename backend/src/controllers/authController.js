@@ -46,6 +46,7 @@ const login = [
     res.cookie(config.jwt.cookieName, result.token, {
       httpOnly: true,
       sameSite: 'strict',
+      secure: !config.isDev,   // require HTTPS in production
       maxAge,
       path: '/',
     });

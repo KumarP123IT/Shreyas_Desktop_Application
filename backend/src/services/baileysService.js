@@ -46,8 +46,12 @@ async function getBaileys() {
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 function normaliseJid(to) {
-  const digits = String(to).replace(/\D/g, '');
-  return digits.includes('@') ? to : `${digits}@s.whatsapp.net`;
+  const s = String(to).trim();
+  // Already a full JID (…@s.whatsapp.net, …@lid, …@g.us) — don't mangle it.
+  // The old digits-first check meant `includes('@')` could never match.
+  if (s.includes('@')) return s;
+  const digits = s.replace(/\D/g, '');
+  return `${digits}@s.whatsapp.net`;
 }
 
 function reconnect(attempt, delayMs = 0) {
@@ -133,7 +137,15 @@ async function connect(attempt = 1) {
         if (msg.key.fromMe) continue;
         if (!msg.message)   continue;
 
-        const from = (msg.key.remoteJid || '')
+        // Baileys 7 can deliver the sender as an @lid address; in that case
+        // remoteJidAlt holds the real phone-number JID we can reply to and
+        // match against the configured recipient number.
+        const jid = msg.key.remoteJid || '';
+        if (jid.endsWith('@g.us') || jid.endsWith('@broadcast')) continue;
+        const senderJid = jid.endsWith('@lid') && msg.key.remoteJidAlt
+          ? msg.key.remoteJidAlt
+          : jid;
+        const from = senderJid
           .replace('@s.whatsapp.net', '')
           .replace('@c.us', '');
         const text = (

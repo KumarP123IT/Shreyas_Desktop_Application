@@ -4,7 +4,7 @@ const prisma = require('../config/prisma');
 const { success, paginated } = require('../utils/response');
 const asyncHandler = require('../utils/asyncHandler');
 const validate = require('../middleware/validate');
-const { NotFoundError } = require('../utils/errors');
+const { NotFoundError, parseId } = require('../utils/errors');
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
 
@@ -63,7 +63,7 @@ const listCustomerDefaults = asyncHandler(async (req, res) => {
 });
 
 const getCustomerDefault = asyncHandler(async (req, res) => {
-  const customerId = parseInt(req.params.id, 10);
+  const customerId = parseId(req.params.id, 'customerId');
   const data = await mslService.getCustomerDefault(customerId);
   success(res, data);
 });
@@ -71,7 +71,7 @@ const getCustomerDefault = asyncHandler(async (req, res) => {
 const setCustomerDefault = [
   validate(rangeSchema),
   asyncHandler(async (req, res) => {
-    const customerId = parseInt(req.params.id, 10);
+    const customerId = parseId(req.params.id, 'customerId');
     const data = await mslService.setCustomerDefault(customerId, req.body);
     await prisma.auditLog.create({
       data: {
@@ -88,7 +88,7 @@ const setCustomerDefault = [
 ];
 
 const clearCustomerDefault = asyncHandler(async (req, res) => {
-  const customerId = parseInt(req.params.id, 10);
+  const customerId = parseId(req.params.id, 'customerId');
   const before = await mslService.getCustomerDefault(customerId);
   await mslService.clearCustomerDefault(customerId);
   await prisma.auditLog.create({
@@ -112,7 +112,7 @@ const listOverrides = asyncHandler(async (req, res) => {
     customerId,
     search,
     page: parseInt(page, 10),
-    pageSize: parseInt(pageSize, 10),
+    pageSize: Math.min(parseInt(pageSize, 10) || 50, 200), // cap at 200
   });
   paginated(res, { ...result, page: parseInt(page, 10), pageSize: parseInt(pageSize, 10) });
 });
@@ -138,8 +138,9 @@ const createOverride = [
 const updateOverride = [
   validate(rangeSchema),
   asyncHandler(async (req, res) => {
-    const id = parseInt(req.params.id, 10);
-    const before = await mslService.listPartOverrides({ page: 1, pageSize: 1 });
+    const id = parseId(req.params.id);
+    // Fetch the specific override being updated so the audit log 'before' is correct
+    const before = await mslService.getPartOverrideById(id);
     const data = await mslService.updatePartOverride(id, req.body);
     await prisma.auditLog.create({
       data: {
@@ -147,6 +148,7 @@ const updateOverride = [
         entityType: 'msl_part_override',
         entityId: id,
         action: 'UPDATE',
+        before: before ? { minQty: before.minQty, maxQty: before.maxQty } : null,
         after: req.body,
       },
     });
@@ -155,7 +157,7 @@ const updateOverride = [
 ];
 
 const deleteOverride = asyncHandler(async (req, res) => {
-  const id = parseInt(req.params.id, 10);
+  const id = parseId(req.params.id);
   await mslService.deletePartOverride(id);
   await prisma.auditLog.create({
     data: {
@@ -191,7 +193,7 @@ const resolveRange = asyncHandler(async (req, res) => {
   if (!partNo) {
     return success(res, { min: null, max: null, source: null });
   }
-  const resolved = await mslService.resolve(partNo, customerId ? parseInt(customerId, 10) : null);
+  const resolved = await mslService.resolve(partNo, customerId ? parseId(customerId, 'customerId') : null);
   success(res, resolved);
 });
 

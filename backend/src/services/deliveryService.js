@@ -6,9 +6,12 @@ const prisma = require('../config/prisma');
 const mslService = require('./mslService');
 const { NotFoundError, ValidationError } = require('../utils/errors');
 const logger = require('../config/logger');
+const { endOfDay } = require('date-fns');
 
 /**
  * List deliveries, optionally filtered by customerId.
+ * Includes per-delivery MSL summary counts (BELOW_MIN / ABOVE_MAX / NORMAL / NOT_CONFIGURED)
+ * so callers don't need a separate request per row.
  */
 async function listDeliveries({ customerId, status, page = 1, pageSize = 20 } = {}) {
   const where = {
@@ -26,11 +29,24 @@ async function listDeliveries({ customerId, status, page = 1, pageSize = 20 } = 
         customer: { select: { id: true, name: true, supplierCode: true } },
         forecast: { select: { id: true, fileName: true, forecastMonth: true, sentDate: true } },
         _count: { select: { items: { where: { deletedAt: null } } } },
+        items: {
+          where: { deletedAt: null },
+          select: { mslStatus: true },
+        },
       },
     }),
     prisma.delivery.count({ where }),
   ]);
-  return { data, total };
+
+  // Compute mslSummary inline so the dashboard gets it without extra requests
+  const enriched = data.map((d) => {
+    const summary = { BELOW_MIN: 0, NORMAL: 0, ABOVE_MAX: 0, NOT_CONFIGURED: 0, total: d.items.length };
+    d.items.forEach((i) => { if (summary[i.mslStatus] !== undefined) summary[i.mslStatus]++; });
+    const { items: _items, ...rest } = d; // strip raw items array, expose only summary
+    return { ...rest, mslSummary: summary };
+  });
+
+  return { data: enriched, total };
 }
 
 /**
@@ -109,14 +125,16 @@ async function saveSheet(deliveryId, { items, columns }, userId) {
       data: { deletedAt: new Date() },
     });
 
-    // Re-create items with fresh MSL status
-    const newItems = [];
-    for (const [idx, item] of items.entries()) {
-      const resolved = await mslService.resolve(item.partNumber, delivery.customerId);
+    // Batch-resolve MSL ranges for all parts in one set of DB calls (not N calls)
+    const partNumbers = items.map((i) => i.partNumber);
+    const mslMap = await mslService.resolveBatch(partNumbers, delivery.customerId);
+
+    // Build new items
+    const newItems = items.map((item, idx) => {
+      const resolved = mslMap.get(item.partNumber) ?? { min: null, max: null, source: null };
       const qty = item.totalQty ?? 0;
       const status = mslService.computeStatus(qty, resolved);
-
-      newItems.push({
+      return {
         deliveryId,
         partNumber: item.partNumber,
         partName: item.partName,
@@ -128,8 +146,8 @@ async function saveSheet(deliveryId, { items, columns }, userId) {
         mslStatus: status,
         rowOrder: idx,
         extraColumns: item.extraColumns ?? null,
-      });
-    }
+      };
+    });
 
     if (newItems.length > 0) {
       await tx.deliveryItem.createMany({ data: newItems });
@@ -179,11 +197,14 @@ async function reapplyDefaults(deliveryId, userId) {
   });
   if (!delivery) throw new NotFoundError('Delivery');
 
-  const updated = [];
-  for (const item of delivery.items) {
-    const resolved = await mslService.resolve(item.partNumber, delivery.customerId);
+  // Batch-resolve MSL for all parts (one set of DB round-trips, not N)
+  const partNumbers = delivery.items.map((i) => i.partNumber);
+  const mslMap = await mslService.resolveBatch(partNumbers, delivery.customerId);
+
+  const updates = delivery.items.map((item) => {
+    const resolved = mslMap.get(item.partNumber) ?? { min: null, max: null, source: null };
     const status = mslService.computeStatus(item.totalQty, resolved);
-    await prisma.deliveryItem.update({
+    return prisma.deliveryItem.update({
       where: { id: item.id },
       data: {
         snapshotMinQty: resolved.min,
@@ -192,8 +213,9 @@ async function reapplyDefaults(deliveryId, userId) {
         mslStatus: status,
       },
     });
-    updated.push({ ...item, snapshotMinQty: resolved.min, snapshotMaxQty: resolved.max, mslStatus: status });
-  }
+  });
+
+  await Promise.all(updates);
 
   await prisma.auditLog.create({
     data: {
@@ -202,11 +224,78 @@ async function reapplyDefaults(deliveryId, userId) {
       entityType: 'delivery',
       entityId: deliveryId,
       action: 'REAPPLY_DEFAULTS',
-      after: { itemCount: updated.length },
+      after: { itemCount: delivery.items.length },
     },
   });
 
-  return { updatedCount: updated.length };
+  return { updatedCount: delivery.items.length };
+}
+
+/**
+ * Transition a delivery to 'delivered'.
+ * Stops all pending reminders and records the delivery timestamp.
+ */
+async function markDelivered(id, { scope = 'whole' } = {}, userId) {
+  const delivery = await prisma.delivery.findFirst({ where: { id, deletedAt: null } });
+  if (!delivery) throw new NotFoundError('Delivery');
+  if (delivery.status === 'delivered') throw new ValidationError('Delivery is already marked as delivered');
+  if (delivery.status === 'cancelled') throw new ValidationError('Cannot mark a cancelled delivery as delivered');
+
+  const now = new Date();
+  await prisma.$transaction(async (tx) => {
+    await tx.delivery.update({
+      where: { id },
+      data: { status: 'delivered', deliveredAt: now, deliveredScope: scope },
+    });
+    await tx.scheduledReminder.updateMany({
+      where: { deliveryId: id, status: { in: ['pending', 'sending', 'snoozed'] } },
+      data: { status: 'stopped', lastError: 'Delivery marked as delivered' },
+    });
+    await tx.auditLog.create({
+      data: {
+        userId,
+        customerId: delivery.customerId,
+        entityType: 'delivery',
+        entityId: id,
+        action: 'MARK_DELIVERED',
+        after: { scope, deliveredAt: now },
+      },
+    });
+  });
+
+  logger.info({ deliveryId: id, userId, scope }, 'Delivery marked as delivered');
+  return { id, status: 'delivered', deliveredAt: now, deliveredScope: scope };
+}
+
+/**
+ * Cancel a delivery — stops reminders, sets status to 'cancelled'.
+ */
+async function cancelDelivery(id, userId) {
+  const delivery = await prisma.delivery.findFirst({ where: { id, deletedAt: null } });
+  if (!delivery) throw new NotFoundError('Delivery');
+  if (delivery.status === 'cancelled') throw new ValidationError('Delivery is already cancelled');
+  if (delivery.status === 'delivered') throw new ValidationError('Cannot cancel a delivered delivery');
+
+  await prisma.$transaction(async (tx) => {
+    await tx.delivery.update({ where: { id }, data: { status: 'cancelled' } });
+    await tx.scheduledReminder.updateMany({
+      where: { deliveryId: id, status: { in: ['pending', 'sending', 'snoozed'] } },
+      data: { status: 'stopped', lastError: 'Delivery cancelled' },
+    });
+    await tx.auditLog.create({
+      data: {
+        userId,
+        customerId: delivery.customerId,
+        entityType: 'delivery',
+        entityId: id,
+        action: 'CANCEL',
+        before: { status: delivery.status },
+      },
+    });
+  });
+
+  logger.info({ deliveryId: id, userId }, 'Delivery cancelled');
+  return { id, status: 'cancelled' };
 }
 
 /**
@@ -286,7 +375,7 @@ async function getDashboardKpis() {
     prisma.deliveryItem.count({ where: { mslStatus: 'BELOW_MIN', delivery: { status: 'active', deletedAt: null }, deletedAt: null } }),
     prisma.deliveryItem.count({ where: { mslStatus: 'ABOVE_MAX', delivery: { status: 'active', deletedAt: null }, deletedAt: null } }),
     prisma.delivery.count({ where: { status: 'active', deletedAt: null, dueDate: { gte: now, lte: in7Days } } }),
-    prisma.scheduledReminder.count({ where: { status: 'pending', runAt: { gte: new Date(now.toDateString()), lte: new Date(now.toDateString() + ' 23:59:59') } } }),
+    prisma.scheduledReminder.count({ where: { status: 'pending', runAt: { gte: now, lte: endOfDay(now) } } }),
     prisma.notificationOutbox.count({ where: { status: 'failed' } }),
   ]);
 
@@ -296,5 +385,5 @@ async function getDashboardKpis() {
 module.exports = {
   listDeliveries, getDelivery, updateDeliverySchedule,
   saveSheet, reapplyDefaults, getMslSummary, getDashboardKpis,
-  deleteDelivery,
+  deleteDelivery, markDelivered, cancelDelivery,
 };

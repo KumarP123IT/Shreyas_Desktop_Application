@@ -28,15 +28,23 @@ async function parseFile(filePath, fileType) {
 /**
  * Save a forecast (after user review). Moves the file to permanent storage.
  * Re-uploading same customer+month → new version (never overwrites).
+ * Cleans up the temp file on any error to avoid orphaned uploads.
  */
 async function saveForecast({ customerId, tempFilePath, fileName, fileType, parsedData, userId }) {
   // Get customer
   const customer = await prisma.customer.findFirst({ where: { id: customerId, deletedAt: null } });
-  if (!customer) throw new NotFoundError('Customer');
+  if (!customer) {
+    // Temp file is still valid — don't delete it; caller can retry with different customerId
+    throw new NotFoundError('Customer');
+  }
 
   const { rows, meta, warnings, needsReview, confidence } = parsedData;
   const forecastMonth = meta.forecastMonth;
-  if (!forecastMonth) throw new ValidationError('Could not determine forecast month from file');
+  if (!forecastMonth) {
+    // Parser couldn't determine month — clean up temp file before throwing
+    try { fs.unlinkSync(tempFilePath); } catch (_) {}
+    throw new ValidationError('Could not determine forecast month from file. Please check the file format.');
+  }
 
   // Version: count existing forecasts for same customer+month
   const existingCount = await prisma.forecast.count({
@@ -57,24 +65,30 @@ async function saveForecast({ customerId, tempFilePath, fileName, fileType, pars
   const permanentPath = path.join(storageDir, permanentName);
   fs.renameSync(tempFilePath, permanentPath);
 
-  // Save forecast record
-  const forecast = await prisma.forecast.create({
-    data: {
-      customerId,
-      forecastMonth,
-      sentDate: meta.sentDate ? new Date(meta.sentDate) : null,
-      filePath: permanentPath,
-      fileName: fileName,
-      fileType,
-      version,
-      parserConfidence: confidence,
-      parseWarnings: warnings.length > 0 ? warnings : null,
-      status: 'draft',
-    },
-  });
+  try {
+    // Save forecast record
+    const forecast = await prisma.forecast.create({
+      data: {
+        customerId,
+        forecastMonth,
+        sentDate: meta.sentDate ? new Date(meta.sentDate) : null,
+        filePath: permanentPath,
+        fileName: fileName,
+        fileType,
+        version,
+        parserConfidence: confidence,
+        parseWarnings: warnings.length > 0 ? warnings : null,
+        status: 'draft',
+      },
+    });
 
-  logger.info({ forecastId: forecast.id, customerId, forecastMonth, version }, 'Forecast saved');
-  return { forecast, rows, meta, warnings, needsReview };
+    logger.info({ forecastId: forecast.id, customerId, forecastMonth, version }, 'Forecast saved');
+    return { forecast, rows, meta, warnings, needsReview };
+  } catch (e) {
+    // DB write failed — remove the already-moved permanent file so it doesn't orphan
+    try { fs.unlinkSync(permanentPath); } catch (_) {}
+    throw e;
+  }
 }
 
 /**
@@ -104,13 +118,15 @@ async function activateForecast({ forecastId, rows, startDate, dueDate, userId }
       },
     });
 
-    // Snapshot MSL for each row
-    const itemsData = [];
-    for (const [idx, row] of rows.entries()) {
-      const resolved = await mslService.resolve(row.partNumber, forecast.customerId);
-      const status = mslService.computeStatus(row.totalQty, resolved);
+    // Batch-resolve MSL for all rows (one set of DB calls, not N×3)
+    const partNumbers = rows.map((r) => r.partNumber);
+    const mslMap = await mslService.resolveBatch(partNumbers, forecast.customerId);
 
-      itemsData.push({
+    // Snapshot MSL for each row
+    const itemsData = rows.map((row, idx) => {
+      const resolved = mslMap.get(row.partNumber) ?? { min: null, max: null, source: null };
+      const status = mslService.computeStatus(row.totalQty, resolved);
+      return {
         deliveryId: delivery.id,
         partNumber: row.partNumber,
         partName: row.partName,
@@ -123,8 +139,8 @@ async function activateForecast({ forecastId, rows, startDate, dueDate, userId }
         needsReview: row.needsReview ?? false,
         reviewNote: row.reviewNote ?? null,
         extraColumns: row.extraColumns ?? null,
-      });
-    }
+      };
+    });
 
     if (itemsData.length > 0) {
       await tx.deliveryItem.createMany({ data: itemsData });
@@ -166,13 +182,20 @@ async function activateForecast({ forecastId, rows, startDate, dueDate, userId }
 }
 
 /**
- * List forecasts for a customer.
+ * List forecasts for a customer, paginated.
  */
-async function listForecasts(customerId) {
-  return prisma.forecast.findMany({
-    where: { customerId, deletedAt: null },
-    orderBy: [{ forecastMonth: 'desc' }, { version: 'desc' }],
-  });
+async function listForecasts(customerId, { page = 1, pageSize = 50 } = {}) {
+  const where = { customerId, deletedAt: null };
+  const [data, total] = await Promise.all([
+    prisma.forecast.findMany({
+      where,
+      orderBy: [{ forecastMonth: 'desc' }, { version: 'desc' }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.forecast.count({ where }),
+  ]);
+  return { data, total };
 }
 
 /**

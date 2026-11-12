@@ -87,8 +87,10 @@ npm run dev
 ```
 
 Default login on fresh installs: the admin password is generated at first run
-and written to `backend/storage/initial-admin-credentials.txt` — you will be
-asked to set a new password on first login.
+and written to `storage/initial-admin-credentials.txt` (in the install
+directory for the Windows build, `backend/storage/` in dev) — you will be
+asked to set a new password on first login, and the file is deleted
+automatically once the password is changed.
 
 ---
 

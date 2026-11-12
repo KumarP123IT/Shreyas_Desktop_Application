@@ -3,6 +3,7 @@ const deliveryService = require('../services/deliveryService');
 const { success, paginated } = require('../utils/response');
 const asyncHandler = require('../utils/asyncHandler');
 const validate = require('../middleware/validate');
+const { parseId, ValidationError } = require('../utils/errors');
 
 const scheduleSchema = z.object({
   startDate: z.string().optional().nullable(),
@@ -19,13 +20,17 @@ const saveSheetSchema = z.object({
     totalQty: z.number().int().min(0),
     actualStock: z.number().int().min(0).optional().nullable(),
     extraColumns: z.record(z.unknown()).optional().nullable(),
-  })),
+  })).max(5000),
   columns: z.array(z.object({
     key: z.string(),
     label: z.string(),
     colType: z.string().optional(),
     width: z.number().optional(),
   })).optional(),
+});
+
+const markDeliveredSchema = z.object({
+  scope: z.enum(['whole', 'material']).optional().default('whole'),
 });
 
 const list = asyncHandler(async (req, res) => {
@@ -38,14 +43,14 @@ const list = asyncHandler(async (req, res) => {
 });
 
 const getOne = asyncHandler(async (req, res) => {
-  const delivery = await deliveryService.getDelivery(parseInt(req.params.id));
+  const delivery = await deliveryService.getDelivery(parseId(req.params.id));
   success(res, delivery);
 });
 
 const updateSchedule = [
   validate(scheduleSchema),
   asyncHandler(async (req, res) => {
-    const d = await deliveryService.updateDeliverySchedule(parseInt(req.params.id), req.body, req.user.id);
+    const d = await deliveryService.updateDeliverySchedule(parseId(req.params.id), req.body, req.user.id);
     success(res, d);
   }),
 ];
@@ -53,18 +58,18 @@ const updateSchedule = [
 const saveSheet = [
   validate(saveSheetSchema),
   asyncHandler(async (req, res) => {
-    const result = await deliveryService.saveSheet(parseInt(req.params.id), req.body, req.user.id);
+    const result = await deliveryService.saveSheet(parseId(req.params.id), req.body, req.user.id);
     success(res, result);
   }),
 ];
 
 const reapplyDefaults = asyncHandler(async (req, res) => {
-  const result = await deliveryService.reapplyDefaults(parseInt(req.params.id), req.user.id);
+  const result = await deliveryService.reapplyDefaults(parseId(req.params.id), req.user.id);
   success(res, result);
 });
 
 const getMslSummary = asyncHandler(async (req, res) => {
-  const summary = await deliveryService.getMslSummary(parseInt(req.params.id));
+  const summary = await deliveryService.getMslSummary(parseId(req.params.id));
   success(res, summary);
 });
 
@@ -74,8 +79,25 @@ const getDashboardKpis = asyncHandler(async (req, res) => {
 });
 
 const remove = asyncHandler(async (req, res) => {
-  const result = await deliveryService.deleteDelivery(parseInt(req.params.id), req.user.id);
+  const result = await deliveryService.deleteDelivery(parseId(req.params.id), req.user.id);
   success(res, result);
 });
 
-module.exports = { list, getOne, updateSchedule, saveSheet, reapplyDefaults, getMslSummary, getDashboardKpis, remove };
+const markDelivered = [
+  validate(markDeliveredSchema),
+  asyncHandler(async (req, res) => {
+    const result = await deliveryService.markDelivered(
+      parseId(req.params.id),
+      { scope: req.body.scope },
+      req.user.id,
+    );
+    success(res, result);
+  }),
+];
+
+const cancel = asyncHandler(async (req, res) => {
+  const result = await deliveryService.cancelDelivery(parseId(req.params.id), req.user.id);
+  success(res, result);
+});
+
+module.exports = { list, getOne, updateSchedule, saveSheet, reapplyDefaults, getMslSummary, getDashboardKpis, remove, markDelivered, cancel };

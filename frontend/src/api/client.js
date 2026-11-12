@@ -14,7 +14,9 @@ const client = axios.create({
   timeout: 30_000,
 });
 
-// Response interceptor – handle 401 globally
+// Response interceptor – handle 401 globally, and bounce users who still
+// have mustChangePassword set (e.g. sessions that predate the flag) to the
+// profile page where they can rotate the temporary password.
 client.interceptors.response.use(
   (res) => res,
   (err) => {
@@ -23,6 +25,12 @@ client.interceptors.response.use(
       if (window.location.pathname !== '/login') {
         window.location.href = '/login';
       }
+    } else if (
+      err.response?.status === 403 &&
+      err.response?.data?.error?.code === 'PASSWORD_CHANGE_REQUIRED' &&
+      !window.location.pathname.startsWith('/settings/profile')
+    ) {
+      window.location.href = '/settings/profile?mustChange=1';
     }
     return Promise.reject(err);
   }

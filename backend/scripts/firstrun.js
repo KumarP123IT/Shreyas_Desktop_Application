@@ -62,7 +62,7 @@ ENCRYPTION_KEY="${encryptionKey}"
 
 PORT=4000
 NODE_ENV=production
-FRONTEND_DIST=./frontend/dist
+FRONTEND_DIST=../frontend/dist
 
 STORAGE_ROOT=${storageRoot}
 LOG_LEVEL=info

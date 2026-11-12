@@ -7,6 +7,7 @@
 
 const fs   = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 const prisma  = require('../config/prisma');
 const config  = require('../config');
 const logger  = require('../config/logger');
@@ -23,13 +24,39 @@ function getDbFilePath() {
   return path.resolve(path.dirname(require.resolve('../../package.json')), url);
 }
 
+// Millisecond-resolution timestamp — second resolution let two backups in
+// the same second collide on the filename and fail VACUUM INTO.
+function timestamp() {
+  return new Date().toISOString().replace(/[:.]/g, '-');
+}
+
+/**
+ * Run `prisma migrate deploy` against the (just-restored) database so a
+ * backup taken before a migration doesn't leave the schema behind the code.
+ * Uses the same direct-CLI approach as scripts/firstrun.js — no npx.
+ */
+function runMigrations() {
+  const backendRoot = path.resolve(__dirname, '..', '..');
+  const prismaCli   = path.join(backendRoot, 'node_modules', 'prisma', 'build', 'index.js');
+  try {
+    execFileSync(process.execPath, [prismaCli, 'migrate', 'deploy'], {
+      cwd: backendRoot,
+      stdio: 'pipe',
+      env: process.env,
+    });
+  } catch (e) {
+    const detail = e.stderr?.toString().trim() || e.message;
+    throw new Error(`prisma migrate deploy failed: ${detail}`);
+  }
+}
+
 /**
  * Run a backup by copying the SQLite database file.
  */
 async function runBackup() {
   fs.mkdirSync(BACKUP_DIR, { recursive: true });
 
-  const ts       = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const ts       = timestamp();
   const fileName = `backup_${ts}.db`;
   const filePath = path.join(BACKUP_DIR, fileName);
   const srcPath  = getDbFilePath();
@@ -49,7 +76,9 @@ async function runBackup() {
     } catch (vacuumErr) {
       // Fallback for SQLite builds without VACUUM INTO
       logger.warn({ err: vacuumErr.message }, 'VACUUM INTO failed – falling back to file copy');
-      await prisma.$executeRawUnsafe('PRAGMA wal_checkpoint(TRUNCATE)');
+      // $queryRawUnsafe, not $executeRawUnsafe: PRAGMA wal_checkpoint returns
+      // rows, which Prisma rejects on the execute path.
+      await prisma.$queryRawUnsafe('PRAGMA wal_checkpoint(TRUNCATE)');
       fs.copyFileSync(srcPath, filePath);
     }
 
@@ -89,7 +118,9 @@ async function pruneOldBackups() {
     try {
       if (fs.existsSync(log.filePath)) fs.unlinkSync(log.filePath);
       await prisma.backupLog.delete({ where: { id: log.id } });
-    } catch (_) { /* ignore */ }
+    } catch (err) {
+      logger.warn({ err: err.message, filePath: log.filePath }, 'Could not prune old backup file');
+    }
   }
 
   // Prune old pre-restore safety snapshots — keep the newest 5
@@ -99,9 +130,13 @@ async function pruneOldBackups() {
       .map((f) => ({ f, p: path.join(BACKUP_DIR, f), m: fs.statSync(path.join(BACKUP_DIR, f)).mtimeMs }))
       .sort((a, b) => b.m - a.m);
     for (const old of preRestore.slice(5)) {
-      try { fs.unlinkSync(old.p); } catch (_) { /* ignore */ }
+      try { fs.unlinkSync(old.p); } catch (err) {
+        logger.warn({ err: err.message, filePath: old.p }, 'Could not prune pre-restore snapshot');
+      }
     }
-  } catch (_) { /* ignore */ }
+  } catch (err) {
+    logger.warn({ err: err.message }, 'Could not scan backup directory for pre-restore snapshots');
+  }
 }
 
 /**
@@ -131,7 +166,7 @@ async function restoreBackup(filePath) {
   }
 
   // 2. Take a safety snapshot of the current DB before overwriting
-  const ts       = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const ts       = timestamp();
   const safetyPath = path.join(BACKUP_DIR, `pre-restore_${ts}.db`);
   if (fs.existsSync(destPath)) {
     fs.copyFileSync(destPath, safetyPath);
@@ -158,6 +193,21 @@ async function restoreBackup(filePath) {
     await prisma.$connect();
     throw e;
   }
+
+  // A backup can predate migrations — bring the schema up to date before
+  // reconnecting, otherwise every request fails (e.g. missing columns).
+  // Runs while Prisma is still disconnected so nothing holds the file.
+  try {
+    runMigrations();
+  } catch (migErr) {
+    if (fs.existsSync(safetyPath)) {
+      fs.copyFileSync(safetyPath, destPath);
+      logger.error({ err: migErr }, 'Post-restore migration failed — rolled back to pre-restore snapshot');
+    }
+    await prisma.$connect();
+    throw new Error(`Restore failed: post-restore migration error (${migErr.message}). Rolled back to the pre-restore snapshot.`);
+  }
+
   await prisma.$connect();
   await pruneOldBackups().catch(() => {});
   return { ok: true, safetySnapshot: safetyPath };

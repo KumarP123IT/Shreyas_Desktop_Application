@@ -1,6 +1,6 @@
 /**
  * GET /api/health – system health check.
- * Checks: DB, scheduler heartbeat, WAHA session, SMTP, internet,
+ * Checks: DB, scheduler heartbeat, WhatsApp session, SMTP, internet,
  * outbox queue size, and last backup status.
  */
 
@@ -32,7 +32,7 @@ async function checkInternet() {
   }
 }
 
-async function checkWaha() {
+async function checkWhatsapp() {
   try {
     const baileysService = require('../services/baileysService');
     const result = await baileysService.getSessionStatus();
@@ -97,10 +97,10 @@ router.get(
   authenticate,
   asyncHandler(async (req, res) => {
     const scheduler = require('../workers/scheduler');
-    const [db, internet, waha, smtp, outbox, backup] = await Promise.allSettled([
+    const [db, internet, whatsapp, smtp, outbox, backup] = await Promise.allSettled([
       checkDb(),
       checkInternet(),
-      checkWaha(),
+      checkWhatsapp(),
       checkSmtp(),
       getOutboxQueue(),
       getLastBackup(),
@@ -120,7 +120,7 @@ router.get(
           lastTick:  schedStatus.lastTick,
           isRunning: schedStatus.isRunning,
         },
-        waha:   val(waha,   { status: 'error' }),
+        whatsapp: val(whatsapp, { status: 'error' }),
         smtp:   val(smtp,   { status: 'error' }),
         backup: val(backup, { status: 'unknown' }),
       },

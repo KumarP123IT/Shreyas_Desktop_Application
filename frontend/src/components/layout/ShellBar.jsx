@@ -45,7 +45,7 @@ export default function ShellBar({ onToggleNav }) {
     if (!health) return;
     const s = health.services || {};
     setOnline(s.internet?.status === 'ok');
-    setWahaConnected(s.waha?.status === 'ok' || s.waha?.status === 'WORKING');
+    setWahaConnected(s.whatsapp?.status === 'ok' || s.whatsapp?.status === 'WORKING');
     setQueuedCount(health.outbox?.pending ?? 0);
   }, [health, setOnline, setWahaConnected, setQueuedCount]);
 

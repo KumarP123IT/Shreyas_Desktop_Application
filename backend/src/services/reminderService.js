@@ -5,12 +5,15 @@
 
 const prisma = require('../config/prisma');
 const settingsRepo = require('../repositories/settingsRepository');
+const config = require('../config');
 const { toZonedTime, fromZonedTime } = require('date-fns-tz');
 const { addDays, subDays, isAfter, isBefore, parseISO, startOfDay } = require('date-fns');
 const logger = require('../config/logger');
 const { NotFoundError, ValidationError } = require('../utils/errors');
 
-const TZ = 'Asia/Kolkata';
+// Timezone for reminder scheduling — reads from config (which reads APP_TIMEZONE env or falls back to
+// the DB setting default 'Asia/Kolkata'). This is the single source of truth.
+const TZ = config.timezone;
 const DEFAULT_OFFSETS = [10, 5, 3, 1];
 
 /**

@@ -5,6 +5,8 @@
 
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const fs = require('fs');
+const path = require('path');
 const prisma = require('../config/prisma');
 const config = require('../config');
 const logger = require('../config/logger');
@@ -113,6 +115,23 @@ async function changePassword(userId, { currentPassword, newPassword }) {
     data: { passwordHash: hash, mustChangePassword: false },
   });
 
+  // The generated admin password is no longer valid — remove the credentials
+  // file so it doesn't sit on disk (especially on installed/client machines).
+  // Check both the configured storage root and the seed's default location.
+  for (const p of new Set([
+    path.join(config.storage.root, 'initial-admin-credentials.txt'),
+    path.resolve(__dirname, '..', '..', 'storage', 'initial-admin-credentials.txt'),
+  ])) {
+    try {
+      if (fs.existsSync(p)) {
+        fs.rmSync(p, { force: true });
+        logger.info({ path: p }, 'Initial admin credentials file removed');
+      }
+    } catch (e) {
+      logger.warn({ err: e, path: p }, 'Could not remove initial admin credentials file');
+    }
+  }
+
   logger.info({ userId }, 'Password changed');
 }
 
@@ -130,11 +149,13 @@ async function getProfile(userId) {
 
 /**
  * Update display name / email for authenticated user.
+ * Passing undefined for a field leaves it unchanged.
+ * Passing an empty string is rejected by the Zod schema upstream.
  */
 async function updateProfile(userId, data) {
   const allowed = {};
-  if (data.displayName) allowed.displayName = data.displayName;
-  if (data.email) allowed.email = data.email;
+  if (data.displayName !== undefined) allowed.displayName = data.displayName;
+  if (data.email !== undefined) allowed.email = data.email;
 
   const user = await prisma.user.update({
     where: { id: userId },

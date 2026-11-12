@@ -16,7 +16,7 @@ let _configHash = '';
  */
 async function getTransporter() {
   const s = await settingsRepo.getAllDecrypted();
-  const hash = JSON.stringify([s.smtp_host, s.smtp_port, s.smtp_user, s.smtp_pass]);
+  const hash = JSON.stringify([s.smtp_host, s.smtp_port, s.smtp_user, s.smtp_pass, s.smtp_allow_invalid_cert]);
   if (_transporter && hash === _configHash) return _transporter;
 
   if (!s.smtp_host) throw new Error('SMTP host not configured. Go to Settings → Email.');
@@ -29,7 +29,9 @@ async function getTransporter() {
       user: s.smtp_user,
       pass: s.smtp_pass,
     },
-    tls: { rejectUnauthorized: false },
+    // tls.rejectUnauthorized defaults to true (validate certs).
+    // Only disable if the admin has explicitly opted in via Settings.
+    tls: { rejectUnauthorized: s.smtp_allow_invalid_cert !== 'true' },
   });
   _configHash = hash;
   return _transporter;

@@ -128,18 +128,18 @@ async function main() {
     { key: 'smtp_user',        value: '',                 isSecret: false },
     { key: 'smtp_pass',        value: '',                 isSecret: true  },
     { key: 'smtp_from',        value: '',                 isSecret: false },
-    { key: 'waha_url',         value: 'http://localhost:3000', isSecret: false },
-    { key: 'waha_api_key',     value: '',                 isSecret: true  },
-    { key: 'waha_session',     value: 'default',          isSecret: false },
+    // smtp_allow_invalid_cert: set to 'true' only for self-signed cert SMTP servers
+    { key: 'smtp_allow_invalid_cert', value: 'false',    isSecret: false },
     { key: 'recipient_email',  value: '',                 isSecret: false },
     { key: 'recipient_whatsapp', value: '',               isSecret: false },
     { key: 'timezone',         value: 'Asia/Kolkata',     isSecret: false },
     { key: 'app_theme',        value: 'light',            isSecret: false },
+    { key: 'app_name',         value: 'Smart MSL Monitor', isSecret: false },
     { key: 'backup_keep_days', value: '14',               isSecret: false },
     { key: 'scheduler_interval_sec', value: '30',         isSecret: false },
     {
       key: 'tpl_whatsapp_reminder',
-      value: `Shreyas MSL Monitor – Delivery Reminder\n\nCustomer: {{customerName}}\nPart: {{partName}} ({{partNumber}})\nTotal: {{totalQty}} | Min: {{minQty}} | Max: {{maxQty}}\nDelivery due: {{dueDate}}\n\nReply with a number:\n1 – Remind me later\n2 – Remind me at a specific date & time\n3 – Delivered – stop messages`,
+      value: `Delivery Reminder\n\nCustomer: {{customerName}}\nPart: {{partName}} ({{partNumber}})\nTotal: {{totalQty}} | Min: {{minQty}} | Max: {{maxQty}}\nDelivery due: {{dueDate}}\n\nReply with a number:\n1 – Remind me later\n2 – Remind me at a specific date & time\n3 – Delivered – stop messages`,
       isSecret: false,
     },
     {
@@ -149,7 +149,7 @@ async function main() {
     },
     {
       key: 'tpl_email_reminder_body',
-      value: `<p>Dear Team,</p>\n<p>This is a reminder that the following delivery is due on <strong>{{dueDate}}</strong>.</p>\n<p><strong>Customer:</strong> {{customerName}}<br/><strong>Part:</strong> {{partName}} ({{partNumber}})<br/><strong>Total:</strong> {{totalQty}} | Min: {{minQty}} | Max: {{maxQty}}</p>\n<p>Please log into the Smart MSL Monitor for full details.</p>`,
+      value: `<p>Dear Team,</p>\n<p>This is a reminder that the following delivery is due on <strong>{{dueDate}}</strong>.</p>\n<p><strong>Customer:</strong> {{customerName}}<br/><strong>Part:</strong> {{partName}} ({{partNumber}})<br/><strong>Total:</strong> {{totalQty}} | Min: {{minQty}} | Max: {{maxQty}}</p>\n<p>Please log into the app for full details.</p>`,
       isSecret: false,
     },
   ];

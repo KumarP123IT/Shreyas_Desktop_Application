@@ -55,7 +55,24 @@ function createApp() {
   // ── Request logging ────────────────────────────────────────────────────────
   app.use(requestLogger);
 
-  // ── Rate limiting (global) ─────────────────────────────────────────────────
+  // ── Rate limiting ──────────────────────────────────────────────────────────
+  // IMPORTANT: stricter per-route limiters must be registered BEFORE the
+  // global limiter and BEFORE app.use('/api', apiRoutes) so Express reaches
+  // them first (middleware is evaluated in registration order).
+
+  // Stricter limit for login – 20 attempts per 15 minutes
+  app.use(
+    '/api/auth/login',
+    rateLimit({
+      windowMs: 15 * 60_000,
+      max: 20,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: { success: false, error: { code: 'RATE_LIMITED', message: 'Too many login attempts. Please wait before trying again.' } },
+    })
+  );
+
+  // Global API limiter – 300 requests per minute
   app.use(
     '/api',
     rateLimit({
@@ -64,18 +81,6 @@ function createApp() {
       standardHeaders: true,
       legacyHeaders: false,
       message: { success: false, error: { code: 'RATE_LIMITED', message: 'Too many requests' } },
-    })
-  );
-
-  // Stricter limit for auth endpoints
-  app.use(
-    '/api/auth/login',
-    rateLimit({
-      windowMs: 15 * 60_000,
-      max: 20,
-      standardHeaders: true,
-      legacyHeaders: false,
-      message: { success: false, error: { code: 'RATE_LIMITED', message: 'Too many login attempts' } },
     })
   );
 

@@ -39,7 +39,7 @@ async function sendOutboxItem(item) {
     if (item.channel === 'email') {
       await emailService.sendEmail({
         to: item.recipient,
-        subject: item.subject || 'Smart MSL Monitor Notification',
+        subject: item.subject || 'MSL Monitor Notification',
         html: item.body,
         text: item.body.replace(/<[^>]+>/g, ''),
       });
@@ -125,7 +125,9 @@ async function processOutbox() {
       // Update the pre-created log row when present (e.g. MSL breach digest),
       // otherwise write a fresh notification log.
       if (meta.logId) {
-        await prisma.notificationLog.update({
+        // updateMany (not update) so a cleared/missing log row doesn't throw
+        // and wedge the rest of the outbox batch in 'sending'.
+        await prisma.notificationLog.updateMany({
           where: { id: meta.logId },
           data: {
             status: 'sent',
@@ -166,7 +168,7 @@ async function processOutbox() {
       if (meta?.logId) {
         // Update the pre-created log row. While the outbox still has retries
         // left the row stays 'pending'; only a terminal failure marks it failed.
-        await prisma.notificationLog.update({
+        await prisma.notificationLog.updateMany({
           where: { id: meta.logId },
           data: {
             status: newStatus === 'failed' ? 'failed' : 'pending',
@@ -231,6 +233,7 @@ async function enqueueReminder(reminder) {
   let body;
   if (reminder.channel === 'whatsapp') {
     const tpl = settings.tpl_whatsapp_reminder || '{{customerName}} – delivery due {{dueDate}} ({{daysLeft}} days left)';
+    const appName = settings.app_name || 'Smart MSL Monitor';
     // Build digest of all breach items
     const breaches = delivery.items
       .filter((i) => i.mslStatus !== 'NORMAL' && i.mslStatus !== 'NOT_CONFIGURED')
@@ -238,11 +241,11 @@ async function enqueueReminder(reminder) {
 
     if (breaches.length > 0) {
       const breachLines = breaches.map((item) => {
-        const tokens = buildReminderTokens({ delivery, item, daysLeft });
         return `• ${item.partName} (${item.partNumber}) | Qty: ${item.totalQty} | Min: ${item.snapshotMinQty} | Max: ${item.snapshotMaxQty} → ${item.mslStatus}`;
       }).join('\n');
 
-      body = `Shreyas MSL Monitor – Delivery Reminder\n\nCustomer: ${delivery.customer?.name}\nForecast: ${delivery.forecastMonth}\nDue: ${daysLeft !== null ? daysLeft + ' days away' : '—'}\n\n⚠️ Parts needing attention:\n${breachLines}\n\n${breaches.length < delivery.items.filter(i => i.mslStatus !== 'NORMAL').length ? `(+${delivery.items.filter(i => i.mslStatus !== 'NORMAL').length - breaches.length} more – check the app)\n\n` : ''}Reply with a number:\n1 – Remind me later\n2 – Remind me at a specific date & time\n3 – Delivered – stop messages`;
+      const totalBreaches = delivery.items.filter(i => i.mslStatus !== 'NORMAL' && i.mslStatus !== 'NOT_CONFIGURED').length;
+      body = `${appName} – Delivery Reminder\n\nCustomer: ${delivery.customer?.name}\nForecast: ${delivery.forecastMonth}\nDue: ${daysLeft !== null ? daysLeft + ' days away' : '—'}\n\n⚠️ Parts needing attention:\n${breachLines}${totalBreaches > breaches.length ? `\n(+${totalBreaches - breaches.length} more – check the app)` : ''}\n\nReply with a number:\n1 – Remind me later\n2 – Remind me at a specific date & time\n3 – Delivered – stop messages`;
     } else {
       body = render(tpl, buildReminderTokens({ delivery, item: delivery.items[0], daysLeft }));
       body += '\n\nReply with a number:\n1 – Remind me later\n2 – Remind me at a specific date & time\n3 – Delivered – stop messages';
@@ -271,10 +274,24 @@ async function enqueueReminder(reminder) {
   });
 }
 
+// ── Outbox cleanup ────────────────────────────────────────────────────────────
+
+async function cleanupOutbox() {
+  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const result = await prisma.notificationOutbox.deleteMany({
+    where: {
+      status: { in: ['sent', 'failed'] },
+      updatedAt: { lt: cutoff },
+    },
+  });
+  if (result.count > 0) {
+    logger.info({ deleted: result.count }, 'Outbox cleanup: removed old sent/failed items');
+  }
+  return result.count;
+}
+
 /**
  * Retry a failed notification by ID.
- */
-async function retryNotification(outboxId) {
   await prisma.notificationOutbox.update({
     where: { id: outboxId },
     data: { status: 'pending', nextRetryAt: new Date(), attemptCount: 0, lastError: null },
@@ -358,6 +375,6 @@ async function checkInternet() {
 }
 
 module.exports = {
-  enqueue, enqueueReminder, processOutbox,
+  enqueue, enqueueReminder, processOutbox, cleanupOutbox,
   retryNotification, listLogs, clearLogs, checkInternet,
 };

@@ -114,6 +114,13 @@ Section "Main Application" SecMain
   ${EndIf}
   DetailPrint "Database ready."
 
+  ; Tell the client where the generated admin password lives (first install only)
+  IfFileExists "$INSTDIR\storage\initial-admin-credentials.txt" credsExist credsDone
+  Goto credsDone
+  credsExist:
+    MessageBox MB_OK "Initial admin credentials were generated.$\r$\n$\r$\nFile: $INSTDIR\storage\initial-admin-credentials.txt$\r$\n$\r$\nOpen Smart MSL Monitor, sign in with those credentials, and set a new password when prompted. The credentials file is deleted automatically after the password change (or you can delete it manually)."
+  credsDone:
+
   ; ── Install Windows Service ────────────────────────────────────────────────
   DetailPrint "Installing Windows Service..."
 

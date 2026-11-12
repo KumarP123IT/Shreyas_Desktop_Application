@@ -43,6 +43,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [serverError, setServerError] = useState('');
   const [isLockedOut, setIsLockedOut] = useState(false);
+  const [showForgotMsg, setShowForgotMsg] = useState(false);
 
   // Already logged in → redirect
   useEffect(() => {
@@ -246,11 +247,23 @@ export default function LoginPage() {
                 <button
                   type="button"
                   className="text-sm text-[#0070F2] hover:text-[#0064D9] font-medium transition-colors"
-                  onClick={() => alert('Please contact your system administrator to reset your password.')}
+                  onClick={() => setShowForgotMsg((v) => !v)}
                 >
                   Forgot password?
                 </button>
               </div>
+
+              {/* Forgot-password inline message */}
+              {showForgotMsg && (
+                <div className="rounded-lg bg-[#F0F6FF] border border-[#C0D8F8] px-4 py-3 text-sm text-[#1D2D3E]" role="status">
+                  <p className="font-semibold text-[#0070F2] mb-0.5">Password reset</p>
+                  <p className="text-[#556B82] leading-relaxed">
+                    Please contact your system administrator to reset your password.
+                    They can access the <span className="font-mono text-xs bg-white border border-[#E0E0E0] rounded px-1 py-0.5">storage/initial-admin-credentials.txt</span> file
+                    or reset it directly in the database.
+                  </p>
+                </div>
+              )}
 
               {/* Submit button */}
               <button
@@ -272,7 +285,7 @@ export default function LoginPage() {
 
             {/* Footer note */}
             <p className="text-xs text-[#9AAABB] text-center border-t border-[#F0F0F0] pt-5">
-              Supplier Code S0965 · Local instance
+              Internal use only · Local instance
             </p>
           </div>
         </div>

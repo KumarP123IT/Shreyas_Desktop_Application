@@ -110,7 +110,7 @@ export default function TemplatesSettings() {
       <TemplateEditor
         id="tpl-wa"
         label="WhatsApp reminder template"
-        hint="Plain text. Sent via WAHA."
+        hint="Plain text. Sent via WhatsApp."
         value={form.tpl_whatsapp_reminder}
         onChange={(v) => { setForm({ ...form, tpl_whatsapp_reminder: v }); setActivePreview('whatsapp'); }}
         rows={10}

@@ -6,6 +6,7 @@ const { success } = require('../utils/response');
 const asyncHandler = require('../utils/asyncHandler');
 const { authenticate } = require('../middleware/auth');
 const { ValidationError } = require('../utils/errors');
+const scheduler = require('../workers/scheduler');
 const config = require('../config');
 
 const router = Router();
@@ -30,8 +31,14 @@ router.post('/restore', asyncHandler(async (req, res) => {
     throw new ValidationError('Type RESTORE in the confirm field to restore a backup');
   }
   if (!filePath) throw new ValidationError('filePath is required');
-  const result = await backupService.restoreBackup(filePath);
-  success(res, result);
+  // Pause the scheduler while the DB file is swapped out from under Prisma.
+  scheduler.pause();
+  try {
+    const result = await backupService.restoreBackup(filePath);
+    success(res, result);
+  } finally {
+    scheduler.resume();
+  }
 }));
 
 router.get('/download', asyncHandler(async (req, res) => {
