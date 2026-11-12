@@ -14,6 +14,7 @@ const reminderRoutes     = require('./reminders');
 const notificationRoutes = require('./notifications');
 const webhookRoutes      = require('./webhooks');
 const backupRoutes       = require('./backup');
+const stockRoutes        = require('./stocks');
 
 const router = Router();
 
@@ -28,5 +29,6 @@ router.use('/reminders',     reminderRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/webhooks',      webhookRoutes);
 router.use('/backup',        backupRoutes);
+router.use('/stocks',        stockRoutes);
 
 module.exports = router;

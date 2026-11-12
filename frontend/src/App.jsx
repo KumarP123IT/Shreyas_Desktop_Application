@@ -12,6 +12,7 @@ import DeliveriesPage from '@/pages/DeliveriesPage';
 import RemindersPage from '@/pages/RemindersPage';
 import NotificationsPage from '@/pages/NotificationsPage';
 import SettingsPage from '@/pages/SettingsPage';
+import StocksPage from '@/pages/StocksPage';
 
 /**
  * Guard: redirect to /login if not authenticated.
@@ -48,6 +49,7 @@ export default function App() {
         <Route path="deliveries/*"  element={<DeliveriesPage />} />
         <Route path="reminders"     element={<RemindersPage />} />
         <Route path="notifications" element={<NotificationsPage />} />
+        <Route path="stocks/*"      element={<StocksPage />} />
         <Route path="settings/*"    element={<SettingsPage />} />
       </Route>
 

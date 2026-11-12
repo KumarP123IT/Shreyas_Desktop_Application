@@ -5,7 +5,7 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard, Users, Truck, Bell, MessageSquare, Settings,
+  LayoutDashboard, Users, Truck, Bell, MessageSquare, Settings, Package,
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -16,6 +16,7 @@ const NAV_ITEMS = [
   { to: '/dashboard',     label: 'Dashboard',     icon: LayoutDashboard },
   { to: '/customers',     label: 'Customers',      icon: Users },
   { to: '/deliveries',    label: 'Deliveries',     icon: Truck },
+  { to: '/stocks',        label: 'Stocks',         icon: Package },
   { to: '/reminders',     label: 'Reminders',      icon: Bell },
   { to: '/notifications', label: 'Notifications',  icon: MessageSquare, badge: 'unread' },
   { to: '/settings',      label: 'Settings',       icon: Settings },

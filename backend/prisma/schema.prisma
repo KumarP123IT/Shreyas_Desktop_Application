@@ -303,6 +303,43 @@ model AppSetting {
   @@map("app_settings")
 }
 
+// ─── Stocks ───────────────────────────────────────────────────────────────────
+
+model Stock {
+  id         Int       @id @default(autoincrement())
+  partNumber String    @unique
+  partName   String
+  quantity   Int       @default(0)
+  unit       String?
+  notes      String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  transactions StockTransaction[]
+
+  @@index([partNumber])
+  @@map("stocks")
+}
+
+model StockTransaction {
+  id          Int      @id @default(autoincrement())
+  stockId     Int
+  deltaQty    Int      // positive = added, negative = consumed
+  reason      String   // "MANUAL_SET" | "MANUAL_ADJUST" | "FORECAST_UPLOAD"
+  referenceId Int?     // e.g. forecastId or deliveryId
+  refType     String?  // "forecast" | "delivery"
+  userId      Int?
+  note        String?
+  createdAt   DateTime @default(now())
+
+  stock Stock @relation(fields: [stockId], references: [id])
+
+  @@index([stockId])
+  @@index([createdAt])
+  @@map("stock_transactions")
+}
+
 // ─── Audit Log ────────────────────────────────────────────────────────────────
 
 model AuditLog {

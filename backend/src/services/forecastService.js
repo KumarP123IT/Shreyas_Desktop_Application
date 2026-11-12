@@ -177,6 +177,17 @@ async function activateForecast({ forecastId, rows, startDate, dueDate, userId }
       }
     });
 
+    // Sync global stocks from forecast rows (non-blocking)
+    setImmediate(async () => {
+      try {
+        const stockService = require('./stockService');
+        await stockService.recordForecastUpload(itemsData, forecastId, userId);
+      } catch (e) {
+        const logger2 = require('../config/logger');
+        logger2.warn({ err: e.message }, 'Stock sync after forecast activation failed');
+      }
+    });
+
     return delivery;
   });
 }
