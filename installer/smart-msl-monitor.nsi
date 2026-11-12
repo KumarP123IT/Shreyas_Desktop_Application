@@ -148,7 +148,11 @@ Section "Main Application" SecMain
   ${If} $0 != 0
     DetailPrint "Note: service will start on next reboot."
   ${Else}
-    DetailPrint "Service started."
+    DetailPrint "Service started — waiting for backend to initialise..."
+    ; Give the Node.js process a few seconds to bind the port
+    ; The VBS launcher will poll for up to 60s anyway — this is a head-start
+    Sleep 4000
+    DetailPrint "Service ready."
   ${EndIf}
 
   ; ── Copy browser-launcher VBS (bundled as static file) ───────────────────
@@ -156,10 +160,12 @@ Section "Main Application" SecMain
   File "open-app.vbs"
 
   ; ── Shortcuts ─────────────────────────────────────────────────────────────
-  CreateShortcut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\open-app.vbs" "" "$INSTDIR\assets\icon_pro.ico" 0 SW_SHOWMINIMIZED
+  ; Use wscript.exe explicitly so the VBS runs on machines where .vbs
+  ; association is broken or missing (common on locked-down Windows builds)
+  CreateShortcut "$DESKTOP\${APP_NAME}.lnk" "$WINDIR\System32\wscript.exe" '"$INSTDIR\open-app.vbs"' "$INSTDIR\assets\icon_pro.ico" 0 SW_SHOWMINIMIZED
 
   CreateDirectory "$SMPROGRAMS\${APP_NAME}"
-  CreateShortcut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" "$INSTDIR\open-app.vbs" "" "$INSTDIR\assets\icon_pro.ico" 0 SW_SHOWMINIMIZED
+  CreateShortcut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" "$WINDIR\System32\wscript.exe" '"$INSTDIR\open-app.vbs"' "$INSTDIR\assets\icon_pro.ico" 0 SW_SHOWMINIMIZED
   CreateShortcut "$SMPROGRAMS\${APP_NAME}\Uninstall.lnk" "$INSTDIR\Uninstall.exe"
 
   ; ── Add/Remove Programs registry ──────────────────────────────────────────
@@ -198,8 +204,10 @@ Section "Uninstall"
 SectionEnd
 
 ; ─────────────────────────────────────────────────────────────────────────────
-; Finish page helper
+; Finish page helper – runs the VBS launcher so it waits for the server
 ; ─────────────────────────────────────────────────────────────────────────────
 Function LaunchApp
-  ExecShell "open" "${APP_URL}"
+  ; Use the VBS launcher (waits up to 60s for backend to respond)
+  ; wscript.exe is always present on Windows
+  ExecShell "open" "wscript.exe" '"$INSTDIR\open-app.vbs"' SW_HIDE
 FunctionEnd

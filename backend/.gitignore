@@ -13,6 +13,7 @@ node_modules/
 *.sqlite
 *.sqlite3
 storage/data/
+prisma/storage/
 
 # ─── Logs ────────────────────────────────────────────────────────────────────
 *.log
