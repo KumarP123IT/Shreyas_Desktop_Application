@@ -242,6 +242,110 @@ jobs:
           }
           if (-not $ok) { throw "Pre-flight check failed — required files missing." }
 
+      # ── Smoke test: start backend and confirm it binds port 4000 ────────────
+      # Catches startup ReferenceErrors (and other crashes) before we waste
+      # time compiling a broken installer. Runs with the bundled node.exe so
+      # it exercises the exact binary that will be shipped.
+      - name: Backend smoke test
+        shell: pwsh
+        run: |
+          $nodeExe   = (Resolve-Path "installer\runtimes\node\node.exe").Path
+          $prismaCli = (Resolve-Path "backend\node_modules\prisma\build\index.js").Path
+
+          # ── 1. Write a temporary .env ──────────────────────────────────────
+          $jwtSecret     = -join ((1..40) | ForEach-Object { '{0:x}' -f (Get-Random -Max 16) })
+          $encryptionKey = -join ((1..40) | ForEach-Object { '{0:x}' -f (Get-Random -Max 16) })
+          $tmpDb      = (Resolve-Path "backend").Path + "\tmp-smoke.db"
+          $tmpStorage = (Resolve-Path "backend").Path + "\tmp-smoke-storage"
+          $tmpLogs    = (Resolve-Path "backend").Path + "\tmp-smoke-logs"
+          New-Item -ItemType Directory -Force -Path $tmpStorage | Out-Null
+          New-Item -ItemType Directory -Force -Path $tmpLogs    | Out-Null
+          $envContent = @"
+          DATABASE_URL=file:$($tmpDb.Replace('\','/'))
+          JWT_SECRET=$jwtSecret
+          JWT_EXPIRES_IN=8h
+          JWT_REMEMBER_EXPIRES_IN=30d
+          ENCRYPTION_KEY=$encryptionKey
+          PORT=4000
+          NODE_ENV=production
+          FRONTEND_DIST=frontend/dist
+          STORAGE_ROOT=$($tmpStorage.Replace('\','/'))
+          LOG_DIR=$($tmpLogs.Replace('\','/'))
+          SCHEDULER_INTERVAL_SEC=30
+          "@
+          # Strip leading spaces from here-string indentation
+          $envContent = ($envContent -split "`n" | ForEach-Object { $_.TrimStart() }) -join "`n"
+          Set-Content "backend\.env" $envContent -Encoding UTF8
+          Write-Host "Wrote backend\.env"
+
+          # ── 2. Run migrations against the temp DB ──────────────────────────
+          $env:DATABASE_URL = "file:$($tmpDb.Replace('\','/'))"
+          & $nodeExe $prismaCli migrate deploy --schema=backend\prisma\schema.prisma
+          if ($LASTEXITCODE -ne 0) { throw "Smoke-test migrations failed" }
+          Write-Host "Migrations OK"
+
+          # ── 3. Write firstrun marker so the boot script skips setup ────────
+          New-Item -ItemType Directory -Force -Path "backend\storage" | Out-Null
+          Set-Content "backend\storage\.firstrun_done" (Get-Date -Format o) -Encoding UTF8
+
+          # ── 4. Start the backend as a background job ───────────────────────
+          $job = Start-Job -ScriptBlock {
+            param($node, $dir)
+            Set-Location $dir
+            & $node "src\index.js" 2>&1
+          } -ArgumentList $nodeExe, (Resolve-Path "backend").Path
+          Write-Host "Backend job started (id=$($job.Id))"
+
+          # ── 5. Poll http://127.0.0.1:4000/ for up to 30 seconds ───────────
+          $ready = $false
+          for ($i = 1; $i -le 30; $i++) {
+            Start-Sleep 1
+            try {
+              $r = Invoke-WebRequest -Uri "http://127.0.0.1:4000/" `
+                    -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
+              Write-Host "  → HTTP $($r.StatusCode) after ${i}s"
+              $ready = $true
+              break
+            } catch {
+              # Any HTTP response (including 401/404) counts as the server being up.
+              # Only a connection refused (no TCP) is a real failure.
+              if ($_.Exception.Response -ne $null) {
+                $sc = [int]$_.Exception.Response.StatusCode
+                Write-Host "  → HTTP $sc after ${i}s"
+                $ready = $true
+                break
+              }
+              Write-Host "  waiting... ($i/30)"
+            }
+          }
+
+          # ── 6. Stop the background job (always) ───────────────────────────
+          Stop-Job  $job -ErrorAction SilentlyContinue
+          Remove-Job $job -Force -ErrorAction SilentlyContinue
+
+          # ── 7. Cleanup — MUST run before NSIS copies backend\* ────────────
+          Remove-Item "backend\.env"                        -ErrorAction SilentlyContinue
+          Remove-Item "backend\storage\.firstrun_done"     -ErrorAction SilentlyContinue
+          Remove-Item $tmpDb                                -ErrorAction SilentlyContinue
+          Remove-Item "${tmpDb}-shm"                       -ErrorAction SilentlyContinue
+          Remove-Item "${tmpDb}-wal"                       -ErrorAction SilentlyContinue
+          Remove-Item $tmpStorage -Recurse -Force          -ErrorAction SilentlyContinue
+          Remove-Item $tmpLogs    -Recurse -Force          -ErrorAction SilentlyContinue
+          # Remove storage dir only if it is now empty (firstrun_done was the only file)
+          if ((Get-ChildItem "backend\storage" -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0) {
+            Remove-Item "backend\storage" -Recurse -Force  -ErrorAction SilentlyContinue
+          }
+          Write-Host "Cleanup done"
+
+          # ── 8. Fail the job if the server never responded ──────────────────
+          if (-not $ready) {
+            Write-Host "=== backend logs ==="
+            Get-Content "$tmpLogs\app.log" -ErrorAction SilentlyContinue
+            Get-Content "backend\logs\app.log" -ErrorAction SilentlyContinue
+            throw "Smoke test FAILED: backend did not respond on http://127.0.0.1:4000/ within 30 seconds"
+          }
+          Write-Host "Smoke test PASSED"
+
       # ── Ensure LICENSE.txt ───────────────────────────────────────────────────
       - name: Ensure LICENSE.txt
         shell: pwsh

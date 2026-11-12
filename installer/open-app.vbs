@@ -1,19 +1,21 @@
-Dim sh, http, i, ready
+Dim sh, http, i, ready, st
 Set sh    = CreateObject("WScript.Shell")
 Set http  = CreateObject("MSXML2.XMLHTTP")
 ready     = False
 
-' Poll localhost:4000 up to 90 seconds — allows for first-run DB setup time
+' Poll 127.0.0.1:4000 up to 90 seconds (server binds loopback only).
+' Reading http.status after a failed connection raises a VBScript error,
+' so we guard with On Error Resume Next and read status into st only when
+' no error occurred.
 For i = 1 To 90
+  st = 0
   On Error Resume Next
-  http.open "GET", "http://localhost:4000", False
+  http.open "GET", "http://127.0.0.1:4000/", False
   http.send
+  If Err.Number = 0 Then st = http.status
   Err.Clear
   On Error GoTo 0
-  If http.status > 0 Then
-    ready = True
-    Exit For
-  End If
+  If st > 0 Then ready = True : Exit For
   WScript.Sleep 1000
 Next
 

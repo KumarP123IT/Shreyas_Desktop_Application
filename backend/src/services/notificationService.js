@@ -291,10 +291,31 @@ async function cleanupOutbox() {
 }
 
 /**
- * Retry a failed notification by ID.
-  await prisma.notificationOutbox.update({
-    where: { id: outboxId },
-    data: { status: 'pending', nextRetryAt: new Date(), attemptCount: 0, lastError: null },
+ * Re-queue a notification from the log (the "Retry" button on the
+ * Notifications page). `id` is a NotificationLog id. A fresh outbox item
+ * is created that points back at the log row, so processOutbox() updates
+ * the same row to sent/failed.
+ */
+async function retryNotification(id) {
+  const { NotFoundError } = require('../utils/errors');
+  const log = await prisma.notificationLog.findUnique({ where: { id } });
+  if (!log) throw new NotFoundError('Notification');
+
+  await prisma.notificationOutbox.create({
+    data: {
+      channel:     log.channel,
+      recipient:   log.recipient,
+      subject:     log.subject || null,
+      body:        log.body,
+      metadata:    JSON.stringify({ deliveryId: log.deliveryId, logId: log.id, retry: true }),
+      status:      'pending',
+      nextRetryAt: new Date(),
+    },
+  });
+
+  await prisma.notificationLog.update({
+    where: { id: log.id },
+    data:  { status: 'pending', errorDetail: null },
   });
 }
 
