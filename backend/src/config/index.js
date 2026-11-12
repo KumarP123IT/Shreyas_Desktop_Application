@@ -1,10 +1,29 @@
 /**
  * Central configuration – reads process.env and validates required values.
  * Import this module everywhere instead of reading process.env directly.
+ *
+ * NOTE: dotenv is loaded by index.js BEFORE this module is first required.
+ * The bare dotenv.config() call here is intentionally a no-op in that path
+ * (dotenv skips already-set vars), but provides a fallback for direct
+ * invocations (tests, scripts) where index.js hasn't run first.
  */
 
-require('dotenv').config();
-const path = require('path');
+const path   = require('path');
+const dotenv = require('dotenv');
+
+// Fallback dotenv load: try cwd/.env first, then __dirname/../../../.env
+// (covers both service runtime and direct script invocations)
+if (!process.env.JWT_SECRET) {
+  const candidates = [
+    path.resolve(process.cwd(), '.env'),
+    path.resolve(__dirname, '../../.env'),   // $INSTDIR/src/config → $INSTDIR/.env
+    path.resolve(__dirname, '../../../.env'), // dev: backend/src/config → backend/.env
+  ];
+  for (const p of candidates) {
+    const result = dotenv.config({ path: p });
+    if (!result.error && process.env.JWT_SECRET) break;
+  }
+}
 
 function required(name) {
   const val = process.env[name];
@@ -42,10 +61,12 @@ const config = {
 
   server: {
     port: parseInt(process.env.PORT || '4000', 10),
+    // __dirname = $INSTDIR/src/config  →  ../../ = $INSTDIR (install root)
+    // FRONTEND_DIST is relative to install root, e.g. "frontend/dist"
     frontendDist: path.resolve(
       __dirname,
-      '../../',   // backend/src/ → backend/ → install root
-      process.env.FRONTEND_DIST || '../frontend/dist'
+      '../../',
+      process.env.FRONTEND_DIST || 'frontend/dist'
     ),
   },
 
@@ -65,20 +86,18 @@ const config = {
   },
 
   storage: {
-    root: path.resolve(
-      __dirname,
-      '../../',
-      process.env.STORAGE_ROOT || './storage'
-    ),
+    // __dirname = $INSTDIR/src/config → ../../ = $INSTDIR
+    // STORAGE_ROOT in .env is an absolute path written by firstrun.js
+    root: process.env.STORAGE_ROOT
+      ? path.resolve(process.env.STORAGE_ROOT)
+      : path.resolve(__dirname, '../../storage'),
   },
 
   log: {
     level: process.env.LOG_LEVEL || 'info',
-    dir: path.resolve(
-      __dirname,
-      '../../',
-      process.env.LOG_DIR || './logs'
-    ),
+    dir: process.env.LOG_DIR
+      ? path.resolve(process.env.LOG_DIR)
+      : path.resolve(__dirname, '../../logs'),
   },
 
   scheduler: {

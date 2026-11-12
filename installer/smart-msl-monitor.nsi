@@ -96,11 +96,14 @@ Section "Main Application" SecMain
   File "assets\icon_pro-512.png"
 
   ; ── Create data directories ────────────────────────────────────────────────
-  CreateDirectory "$APPDATA\${APP_SHORT}"
-  CreateDirectory "$APPDATA\${APP_SHORT}\data"
-  CreateDirectory "$APPDATA\${APP_SHORT}\uploads"
-  CreateDirectory "$APPDATA\${APP_SHORT}\backups"
-  CreateDirectory "$APPDATA\${APP_SHORT}\logs"
+  ; All data lives INSIDE $INSTDIR so both the installer (logged-in user)
+  ; and the Windows Service (LocalSystem) access the same paths.
+  CreateDirectory "$INSTDIR\storage"
+  CreateDirectory "$INSTDIR\storage\data"
+  CreateDirectory "$INSTDIR\storage\uploads"
+  CreateDirectory "$INSTDIR\storage\uploads\_temp"
+  CreateDirectory "$INSTDIR\storage\backups"
+  CreateDirectory "$INSTDIR\logs"
 
   ; ── First-run database setup ───────────────────────────────────────────────
   DetailPrint "Setting up database..."
@@ -133,9 +136,10 @@ Section "Main Application" SecMain
   nsExec::ExecToLog '"$R0" set ${SVC_NAME} DisplayName "${SVC_DISPLAY}"'
   nsExec::ExecToLog '"$R0" set ${SVC_NAME} Description "${SVC_DESC}"'
   nsExec::ExecToLog '"$R0" set ${SVC_NAME} Start SERVICE_AUTO_START'
-  nsExec::ExecToLog '"$R0" set ${SVC_NAME} AppEnvironmentExtra "NODE_ENV=production" "MSL_DATA_DIR=$APPDATA\${APP_SHORT}\data"'
-  nsExec::ExecToLog '"$R0" set ${SVC_NAME} AppStdout "$APPDATA\${APP_SHORT}\logs\service.log"'
-  nsExec::ExecToLog '"$R0" set ${SVC_NAME} AppStderr "$APPDATA\${APP_SHORT}\logs\service-error.log"'
+  ; NODE_ENV=production only — no MSL_DATA_DIR so data always goes to $INSTDIR\storage\data
+  nsExec::ExecToLog '"$R0" set ${SVC_NAME} AppEnvironmentExtra "NODE_ENV=production"'
+  nsExec::ExecToLog '"$R0" set ${SVC_NAME} AppStdout "$INSTDIR\logs\service.log"'
+  nsExec::ExecToLog '"$R0" set ${SVC_NAME} AppStderr "$INSTDIR\logs\service-error.log"'
   nsExec::ExecToLog '"$R0" set ${SVC_NAME} AppRotateFiles 1'
   nsExec::ExecToLog '"$R0" set ${SVC_NAME} AppRotateBytes 5242880'
   nsExec::ExecToLog '"$R0" set ${SVC_NAME} AppExit Default Restart'
@@ -192,7 +196,8 @@ Section "Uninstall"
 
   MessageBox MB_YESNO "Delete all app data (database, uploads, backups)?$\n$\nChoose No to keep your data." IDYES wipeData IDNO keepData
   wipeData:
-    RMDir /r "$APPDATA\${APP_SHORT}"
+    RMDir /r "$INSTDIR\storage"
+    RMDir /r "$INSTDIR\logs"
   keepData:
 
   RMDir /r "$INSTDIR"

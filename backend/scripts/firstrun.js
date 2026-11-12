@@ -37,7 +37,11 @@ const jwtSecret     = crypto.randomBytes(48).toString('hex');  // 96 chars
 const encryptionKey = crypto.randomBytes(32).toString('hex');  // 64 chars
 
 // ── 2. Resolve DB path and write .env ────────────────────────────────────────
-// MSL_DATA_DIR is set by the NSSM service to %APPDATA%\SmartMSLMonitor\data
+// DB and data go inside the install directory itself ($INSTDIR\storage\data)
+// so both the installer (runs as the logged-in user) and the Windows Service
+// (runs as LocalSystem) point to exactly the same path.
+// MSL_DATA_DIR env var is kept for backwards-compatibility but defaults to
+// a path inside ROOT so it is always accessible by the service account.
 const dataDir = process.env.MSL_DATA_DIR
   ? path.resolve(process.env.MSL_DATA_DIR)
   : path.join(ROOT, 'storage', 'data');
@@ -62,7 +66,7 @@ ENCRYPTION_KEY="${encryptionKey}"
 
 PORT=4000
 NODE_ENV=production
-FRONTEND_DIST=../frontend/dist
+FRONTEND_DIST=frontend/dist
 
 STORAGE_ROOT=${storageRoot}
 LOG_LEVEL=info

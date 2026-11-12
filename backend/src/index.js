@@ -52,6 +52,7 @@ async function main() {
   const app = createApp();
   const server = app.listen(config.server.port, '127.0.0.1', () => {
     logger.info(`Smart MSL Monitor running at http://localhost:${config.server.port}`);
+    logger.info({ frontendDist: config.server.frontendDist }, 'Serving frontend from');
   });
 
   // ── Start scheduler ────────────────────────────────────────────────────────
