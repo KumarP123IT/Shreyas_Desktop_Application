@@ -76,4 +76,13 @@ const getInvoice = asyncHandler(async (req, res) => {
   success(res, invoice);
 });
 
-module.exports = { uploadInvoice, applyInvoice, cancelInvoice, listInvoices, getInvoice };
+/** PATCH /api/customers/:id/invoices/:invoiceId — edit items of a pending invoice */
+const updateInvoice = asyncHandler(async (req, res) => {
+  const invoiceId = parseId(req.params.invoiceId);
+  const { items } = req.body;
+  if (!Array.isArray(items)) throw new ValidationError('items must be an array');
+  const invoice = await invoiceService.updateInvoiceItems(invoiceId, items, req.user?.id);
+  success(res, invoice);
+});
+
+module.exports = { uploadInvoice, applyInvoice, cancelInvoice, listInvoices, getInvoice, updateInvoice };

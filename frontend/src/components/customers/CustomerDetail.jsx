@@ -484,6 +484,20 @@ const STATUS_ICON = {
   cancelled: XCircle,
 };
 
+// Map invoice items (with stock info from getOne) into editable preview rows
+function toEditableRows(invoice) {
+  return (invoice?.items ?? []).map((item) => ({
+    id:         item.id,
+    partNumber: item.partNumber,
+    partName:   item.partName,
+    qty:        item.qty,
+    stockId:    item.stockId,
+    stockQty:   item.stockQty ?? null,
+    stockUnit:  item.stockUnit ?? null,
+    stockFound: !!item.stockFound,
+  }));
+}
+
 export function InvoiceTab({ customerId }) {
   const toast = useToast();
   const qc    = useQueryClient();
@@ -491,6 +505,7 @@ export function InvoiceTab({ customerId }) {
 
   const [uploading,     setUploading]     = useState(false);
   const [preview,       setPreview]       = useState(null); // { invoice, rows, warnings }
+  const [savingItems,   setSavingItems]   = useState(false);
   const [expandId,      setExpandId]      = useState(null);
   const [cancelTarget,  setCancelTarget]  = useState(null);
 
@@ -509,8 +524,16 @@ export function InvoiceTab({ customerId }) {
     mutationFn: (formData) => invoicesApi.upload(customerId, formData),
     onMutate:   () => setUploading(true),
     onSettled:  () => setUploading(false),
-    onSuccess:  (res) => {
-      setPreview(res.data.data);
+    onSuccess:  async (res) => {
+      const inv      = res.data.data.invoice;
+      const warnings = res.data.data.warnings ?? [];
+      // Fetch full invoice so preview rows carry ids + live stock quantities
+      try {
+        const detail = await invoicesApi.getOne(customerId, inv.id);
+        setPreview({ invoice: inv, rows: toEditableRows(detail.data.data), warnings });
+      } catch {
+        setPreview({ invoice: inv, rows: [], warnings });
+      }
     },
     onError: (e) => toast.error(e.response?.data?.error?.message || 'Upload failed'),
   });
@@ -527,7 +550,7 @@ export function InvoiceTab({ customerId }) {
       toast.success(`Invoice applied — ${applied} part(s) deducted from stock${missing ? `, ${missing} not found in stocks` : ''}`);
       setPreview(null);
     },
-    onError: (e) => toast.error(e.response?.data?.error?.message || 'Apply failed'),
+    onError: (e) => { setSavingItems(false); toast.error(e.response?.data?.error?.message || 'Apply failed'); },
   });
 
   // ── Cancel mutation ────────────────────────────────────────────────────────
@@ -540,6 +563,35 @@ export function InvoiceTab({ customerId }) {
     },
     onError: (e) => toast.error(e.response?.data?.error?.message || 'Cancel failed'),
   });
+
+  const updateRow = (i, field, value) => {
+    setPreview((p) => ({
+      ...p,
+      rows: p.rows.map((r, idx) => (idx === i ? { ...r, [field]: value } : r)),
+    }));
+  };
+
+  // Save edited rows, then apply — parser mistakes can be fixed before deducting
+  const handleApply = async () => {
+    if (!preview) return;
+    setSavingItems(true);
+    try {
+      await invoicesApi.updateItems(
+        customerId,
+        preview.invoice.id,
+        preview.rows.map((r) => ({
+          id:         r.id,
+          partNumber: r.partNumber,
+          partName:   r.partName,
+          qty:        parseInt(r.qty, 10) || 0,
+        }))
+      );
+      applyMutation.mutate(preview.invoice.id);
+    } catch (e) {
+      toast.error(e.response?.data?.error?.message || 'Failed to save edits');
+      setSavingItems(false);
+    }
+  };
 
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
@@ -591,28 +643,75 @@ export function InvoiceTab({ customerId }) {
                 <tr className="bg-background border-b border-border text-left">
                   <th className="px-3 py-2 text-xs font-semibold text-text-secondary uppercase">Part Number</th>
                   <th className="px-3 py-2 text-xs font-semibold text-text-secondary uppercase">Part Name</th>
+                  <th className="px-3 py-2 text-xs font-semibold text-text-secondary uppercase text-right">In Stock</th>
                   <th className="px-3 py-2 text-xs font-semibold text-text-secondary uppercase text-right">Qty to Deduct</th>
-                  <th className="px-3 py-2 text-xs font-semibold text-text-secondary uppercase">Stock Match</th>
+                  <th className="px-3 py-2 text-xs font-semibold text-text-secondary uppercase text-right">Remaining</th>
+                  <th className="px-3 py-2 text-xs font-semibold text-text-secondary uppercase">Match</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, i) => (
-                  <tr key={i} className="border-b border-border last:border-0">
-                    <td className="px-3 py-2 font-mono text-xs">{r.partNumber}</td>
-                    <td className="px-3 py-2 text-xs text-text max-w-xs truncate">{r.partName}</td>
-                    <td className="px-3 py-2 text-right font-semibold text-error">{r.qty}</td>
-                    <td className="px-3 py-2">
-                      {r.stockId
-                        ? <span className="text-xs text-success flex items-center gap-1"><CheckCircle2 size={12} /> In stock</span>
-                        : <span className="text-xs text-text-secondary flex items-center gap-1"><AlertTriangle size={12} /> Not in stocks yet</span>
-                      }
-                    </td>
-                  </tr>
-                ))}
+                {rows.map((r, i) => {
+                  const qty     = parseInt(r.qty, 10) || 0;
+                  const inStock = r.stockQty;
+                  const remain  = inStock != null ? Math.max(0, inStock - qty) : null;
+                  const short   = inStock != null && qty > inStock;
+                  return (
+                    <tr key={r.id ?? i} className="border-b border-border last:border-0">
+                      <td className="px-3 py-2">
+                        <input
+                          className="w-36 font-mono text-xs border border-border rounded px-1.5 py-1 bg-background text-text focus:outline-none focus:ring-1 focus:ring-primary/40"
+                          value={r.partNumber}
+                          onChange={(e) => updateRow(i, 'partNumber', e.target.value)}
+                          aria-label="Part number"
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <input
+                          className="w-44 text-xs border border-border rounded px-1.5 py-1 bg-background text-text focus:outline-none focus:ring-1 focus:ring-primary/40"
+                          value={r.partName ?? ''}
+                          onChange={(e) => updateRow(i, 'partName', e.target.value)}
+                          aria-label="Part name"
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-xs text-text-secondary">
+                        {inStock != null ? `${inStock}${r.stockUnit ? ' ' + r.stockUnit : ''}` : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <input
+                          type="number"
+                          min="0"
+                          className={clsx(
+                            'w-20 text-right font-semibold border rounded px-1.5 py-1 bg-background focus:outline-none focus:ring-1 focus:ring-primary/40',
+                            short ? 'border-error text-error' : 'border-border text-error'
+                          )}
+                          value={r.qty}
+                          onChange={(e) => updateRow(i, 'qty', e.target.value)}
+                          aria-label="Quantity to deduct"
+                        />
+                      </td>
+                      <td className={clsx('px-3 py-2 text-right font-mono text-xs font-semibold',
+                        remain != null && (short || remain === 0) ? 'text-error' : 'text-success')}>
+                        {remain != null ? remain : '—'}
+                        {short && <span className="block text-[10px] font-normal text-error">exceeds stock</span>}
+                      </td>
+                      <td className="px-3 py-2">
+                        {r.stockFound
+                          ? <span className="text-xs text-success flex items-center gap-1"><CheckCircle2 size={12} /> In stock</span>
+                          : <span className="text-xs text-text-secondary flex items-center gap-1"><AlertTriangle size={12} /> Not in stocks yet</span>
+                        }
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
+
+        <p className="text-[11px] text-text-secondary">
+          You can fix part numbers and quantities directly in the table — edits are saved when you apply.
+          Stock is deducted down to zero at most; parts not in stock are skipped.
+        </p>
 
         <div className="flex justify-end gap-2 pt-1">
           <button className="fiori-btn-secondary" onClick={() => setPreview(null)}>
@@ -620,11 +719,11 @@ export function InvoiceTab({ customerId }) {
           </button>
           <button
             className="fiori-btn-primary flex items-center gap-1.5"
-            disabled={applyMutation.isPending || rows.length === 0}
-            onClick={() => applyMutation.mutate(invoice.id)}
+            disabled={applyMutation.isPending || savingItems || rows.length === 0}
+            onClick={handleApply}
           >
             <TrendingDown size={14} />
-            {applyMutation.isPending ? 'Applying…' : 'Apply — Deduct from Stocks'}
+            {applyMutation.isPending || savingItems ? 'Applying…' : 'Save & Apply — Deduct from Stocks'}
           </button>
         </div>
       </div>
@@ -714,10 +813,7 @@ export function InvoiceTab({ customerId }) {
                         <button
                           className="fiori-btn-primary text-xs py-1 px-2 flex items-center gap-1"
                           onClick={() => invoicesApi.getOne(customerId, inv.id)
-                            .then((r) => setPreview({ invoice: inv, rows: r.data.data.items.map(item => ({
-                              partNumber: item.partNumber, partName: item.partName,
-                              qty: item.qty, stockId: item.stockId,
-                            })), warnings: [] }))
+                            .then((r) => setPreview({ invoice: inv, rows: toEditableRows(r.data.data), warnings: [] }))
                           }
                         >
                           <TrendingDown size={12} /> Review & Apply
@@ -803,8 +899,8 @@ function InvoiceItemsRow({ customerId, invoiceId }) {
               <td className="px-4 py-2">
                 {item.applied
                   ? <span className="text-success flex items-center gap-1"><CheckCircle2 size={11} /> Applied</span>
-                  : item.stockId
-                  ? <span className="text-warning flex items-center gap-1"><AlertTriangle size={11} /> Pending</span>
+                  : item.stockFound
+                  ? <span className="text-warning flex items-center gap-1"><AlertTriangle size={11} /> Pending · {item.stockQty} in stock</span>
                   : <span className="text-text-secondary flex items-center gap-1"><XCircle size={11} /> No stock match</span>
                 }
               </td>

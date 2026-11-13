@@ -17,6 +17,7 @@ router.post('/:id/restore', ctrl.restore);
 router.get( '/:id/invoices',                      invoiceCtrl.listInvoices);
 router.post('/:id/invoices/upload',               ...invoiceCtrl.uploadInvoice);
 router.get( '/:id/invoices/:invoiceId',           invoiceCtrl.getInvoice);
+router.patch('/:id/invoices/:invoiceId',          invoiceCtrl.updateInvoice);
 router.post('/:id/invoices/:invoiceId/apply',     invoiceCtrl.applyInvoice);
 router.post('/:id/invoices/:invoiceId/cancel',    invoiceCtrl.cancelInvoice);
 

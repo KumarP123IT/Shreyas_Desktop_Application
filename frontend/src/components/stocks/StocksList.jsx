@@ -264,6 +264,7 @@ export default function StocksList() {
   const [editTarget, setEditTarget]   = useState(null);
   const [adjustTarget, setAdjustTarget] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [qtyEdit, setQtyEdit]     = useState(null); // { id, value } — inline qty editing
 
   // Debounce search input
   const handleSearch = (val) => {
@@ -287,6 +288,27 @@ export default function StocksList() {
     },
     onError: (e) => toast.error(e.response?.data?.error?.message || 'Delete failed'),
   });
+
+  // Inline quantity edit — click the qty cell, type new value, Enter/blur saves
+  const qtyMutation = useMutation({
+    mutationFn: ({ id, quantity }) => stocksApi.adjust(id, { quantity, mode: 'set', note: 'Inline quantity edit' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['stocks'] });
+      setQtyEdit(null);
+    },
+    onError: (e) => {
+      toast.error(e.response?.data?.error?.message || 'Quantity update failed');
+      setQtyEdit(null);
+    },
+  });
+
+  const saveQtyEdit = (stock) => {
+    if (!qtyEdit || qtyEdit.id !== stock.id) return;
+    const val = parseInt(qtyEdit.value, 10);
+    if (Number.isNaN(val) || val < 0) { setQtyEdit(null); return; }
+    if (val === stock.quantity) { setQtyEdit(null); return; }
+    qtyMutation.mutate({ id: stock.id, quantity: val });
+  };
 
   const stocks = data?.data ?? [];
   const meta   = data?.meta ?? {};
@@ -371,9 +393,32 @@ export default function StocksList() {
                     >
                       <td className="px-4 py-3 font-mono text-xs font-medium text-text">{s.partNumber}</td>
                       <td className="px-4 py-3 text-text max-w-xs truncate">{s.partName}</td>
-                      <td className="px-4 py-3 text-right font-semibold text-text">
-                        {s.quantity.toLocaleString()}
-                        {s.unit && <span className="ml-1 text-xs font-normal text-text-secondary">{s.unit}</span>}
+                      <td
+                        className="px-4 py-3 text-right font-semibold text-text"
+                        onClick={(e) => { e.stopPropagation(); setQtyEdit({ id: s.id, value: String(s.quantity) }); }}
+                        title="Click to edit quantity"
+                      >
+                        {qtyEdit?.id === s.id ? (
+                          <input
+                            autoFocus
+                            type="number"
+                            min={0}
+                            className="w-24 text-right font-semibold border border-primary rounded px-1.5 py-0.5 bg-background text-text focus:outline-none"
+                            value={qtyEdit.value}
+                            onChange={(e) => setQtyEdit({ id: s.id, value: e.target.value })}
+                            onBlur={() => saveQtyEdit(s)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') { e.preventDefault(); saveQtyEdit(s); }
+                              if (e.key === 'Escape') setQtyEdit(null);
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        ) : (
+                          <span className="cursor-text hover:text-primary transition-colors">
+                            {s.quantity.toLocaleString()}
+                            {s.unit && <span className="ml-1 text-xs font-normal text-text-secondary">{s.unit}</span>}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3"><StockBadge qty={s.quantity} /></td>
                       <td className="px-4 py-3 text-xs text-text-secondary max-w-xs truncate">{s.notes || '—'}</td>

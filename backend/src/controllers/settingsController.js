@@ -48,6 +48,10 @@ const wahaPairingCode = asyncHandler(async (req, res) => {
 const testWhatsapp = asyncHandler(async (req, res) => {
   const { to } = req.body;
   if (!to) throw new ValidationError('to number is required');
+  const digits = String(to).replace(/\D/g, '');
+  if (digits.length < 10) {
+    throw new ValidationError('Enter a valid WhatsApp number with country code, e.g. 919876543210');
+  }
   const result = await baileysService.sendTestMessage(to);
   success(res, { message: `Test message sent to ${to}`, result });
 });

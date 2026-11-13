@@ -175,6 +175,33 @@ async function cancelInvoice(invoiceId, userId) {
 
 // ── List / Get ────────────────────────────────────────────────────────────────
 
+/**
+ * Attach live stock info to invoice items for display. Stock is matched by
+ * partNumber (same rule applyInvoice uses), so quantities shown are current.
+ */
+async function attachStockInfo(invoice) {
+  const partNumbers = [...new Set(invoice.items.map((i) => i.partNumber).filter(Boolean))];
+  const stocks = partNumbers.length
+    ? await prisma.stock.findMany({
+        where: { partNumber: { in: partNumbers }, deletedAt: null },
+        select: { id: true, partNumber: true, quantity: true, unit: true },
+      })
+    : [];
+  const byPn = new Map(stocks.map((s) => [s.partNumber, s]));
+  return {
+    ...invoice,
+    items: invoice.items.map((item) => {
+      const stock = byPn.get(item.partNumber) || null;
+      return {
+        ...item,
+        stockQty:  stock ? stock.quantity : null,
+        stockUnit: stock ? stock.unit : null,
+        stockFound: !!stock,
+      };
+    }),
+  };
+}
+
 async function listInvoices(customerId, { page = 1, pageSize = 50 } = {}) {
   const where = { customerId, deletedAt: null };
   const [data, total] = await Promise.all([
@@ -199,7 +226,88 @@ async function getInvoice(invoiceId) {
     },
   });
   if (!invoice) throw new NotFoundError('Invoice');
-  return invoice;
+  return attachStockInfo(invoice);
 }
 
-module.exports = { uploadInvoice, applyInvoice, cancelInvoice, listInvoices, getInvoice };
+// ── Edit pending invoice items ────────────────────────────────────────────────
+
+/**
+ * Replace the line items of a PENDING invoice — used by the review screen so
+ * users can fix parser mistakes (wrong part number, wrong qty) before
+ * applying to stock. Re-resolves stockId for every row.
+ *
+ * items: [{ id, partNumber, partName, qty }]
+ */
+async function updateInvoiceItems(invoiceId, items, userId) {
+  const invoice = await prisma.invoice.findFirst({
+    where: { id: invoiceId, deletedAt: null },
+    include: { items: true },
+  });
+  if (!invoice) throw new NotFoundError('Invoice');
+  if (invoice.status !== 'pending') {
+    throw new ValidationError('Only pending invoices can be edited. Cancel and re-upload to change an applied invoice.');
+  }
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new ValidationError('items must be a non-empty array');
+  }
+
+  const cleaned = items.map((it) => {
+    const pn  = normalisePartNumber(it.partNumber);
+    const qty = parseInt(it.qty, 10);
+    if (!pn) throw new ValidationError('Every item needs a valid part number');
+    if (!Number.isInteger(qty) || qty < 0) {
+      throw new ValidationError(`Invalid quantity for part "${pn}"`);
+    }
+    return {
+      id:         parseInt(it.id, 10),
+      partNumber: pn,
+      partName:   (it.partName || pn).trim(),
+      qty,
+    };
+  });
+
+  const existingIds = new Set(invoice.items.map((i) => i.id));
+  for (const c of cleaned) {
+    if (!Number.isInteger(c.id) || !existingIds.has(c.id)) {
+      throw new ValidationError('One or more items do not belong to this invoice — reload and try again');
+    }
+  }
+
+  // Re-resolve stock ids against current stocks
+  const pns = [...new Set(cleaned.map((c) => c.partNumber))];
+  const stocks = await prisma.stock.findMany({
+    where: { partNumber: { in: pns }, deletedAt: null },
+    select: { id: true, partNumber: true },
+  });
+  const stockMap = new Map(stocks.map((s) => [s.partNumber, s.id]));
+
+  await prisma.$transaction(async (tx) => {
+    for (const c of cleaned) {
+      await tx.invoiceItem.update({
+        where: { id: c.id },
+        data: {
+          partNumber: c.partNumber,
+          partName:   c.partName,
+          qty:        c.qty,
+          stockId:    stockMap.get(c.partNumber) ?? null,
+          applied:    false,
+        },
+      });
+    }
+    await tx.auditLog.create({
+      data: {
+        userId,
+        customerId: invoice.customerId,
+        entityType: 'invoice',
+        entityId:   invoiceId,
+        action:     'UPDATE_ITEMS',
+        after:      { itemCount: cleaned.length },
+      },
+    });
+  });
+
+  logger.info({ invoiceId, itemCount: cleaned.length }, 'Invoice items updated');
+  return getInvoice(invoiceId);
+}
+
+module.exports = { uploadInvoice, applyInvoice, cancelInvoice, listInvoices, getInvoice, updateInvoiceItems };
