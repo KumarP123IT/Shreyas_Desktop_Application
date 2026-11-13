@@ -11,6 +11,7 @@ router.post('/test-email',       ctrl.testEmail);
 router.get('/smtp-verify',       ctrl.verifySmtp);
 router.get('/waha-status',       ctrl.wahaStatus);
 router.get('/waha-qr',           ctrl.wahaQr);
+router.post('/waha-pairing-code', ctrl.wahaPairingCode);
 router.post('/test-whatsapp',    ctrl.testWhatsapp);
 router.post('/waha-logout',      ctrl.wahaLogout);
 

@@ -70,6 +70,9 @@ export default function WhatsAppSettings() {
   const [waStatus,   setWaStatus]       = useState(null);  // { ok, status }
   const [checking,   setChecking]       = useState(false);
   const [qrLoading,  setQrLoading]      = useState(false);
+  const [pairingPhone, setPairingPhone] = useState('');
+  const [pairingCode,  setPairingCode]  = useState(null);
+  const [pairingLoading, setPairingLoading] = useState(false);
 
   // Sync receiver number from saved settings
   useEffect(() => {
@@ -126,6 +129,26 @@ export default function WhatsAppSettings() {
     }
   };
 
+  const handlePairingCode = async () => {
+    if (!pairingPhone.trim()) return;
+    setPairingLoading(true);
+    setPairingCode(null);
+    try {
+      const r = await settingsApi.wahaPairingCode(pairingPhone.trim());
+      const d = r.data.data;
+      if (d?.ok && d.code) {
+        setPairingCode(d.code);
+        toast.success('Pairing code generated — enter it on your phone');
+      } else {
+        toast.error(d?.error || 'Could not get pairing code');
+      }
+    } catch {
+      toast.error('Failed to get pairing code');
+    } finally {
+      setPairingLoading(false);
+    }
+  };
+
   // ── Derived state ───────────────────────────────────────────────────────
   const isConnected = waStatus?.status === 'WORKING';
   const needsQr     = waStatus?.status === 'SCAN_QR_CODE';
@@ -150,6 +173,11 @@ export default function WhatsAppSettings() {
     const id = setInterval(refreshQr, 15_000);
     return () => clearInterval(id);
   }, [needsQr]);
+
+  // Clear pairing code display once connected
+  useEffect(() => {
+    if (isConnected) setPairingCode(null);
+  }, [isConnected]);
 
   if (isLoading) return (
     <div className="space-y-3">
@@ -249,6 +277,44 @@ export default function WhatsAppSettings() {
                   Dismiss
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* Pairing code alternative — no QR scan needed */}
+          {!isConnected && (
+            <div className="rounded-control border border-border p-3 space-y-2">
+              <p className="text-xs font-semibold text-text">
+                Having trouble scanning? Link with a code instead
+              </p>
+              <div className="flex gap-2">
+                <input
+                  className="fiori-input"
+                  placeholder="Sender number e.g. 919876543210"
+                  value={pairingPhone}
+                  onChange={(e) => setPairingPhone(e.target.value)}
+                  aria-label="Sender WhatsApp number for pairing code"
+                />
+                <button
+                  className="fiori-btn-secondary shrink-0 flex items-center gap-1.5 text-sm"
+                  onClick={handlePairingCode}
+                  disabled={pairingLoading || !pairingPhone.trim()}
+                >
+                  {pairingLoading
+                    ? <><Loader2 size={13} className="animate-spin" /> Getting code…</>
+                    : 'Get Pairing Code'}
+                </button>
+              </div>
+              {pairingCode && (
+                <div className="text-center py-2">
+                  <p className="text-xs text-text-secondary mb-1">
+                    On your phone: WhatsApp → Linked Devices → Link a Device →
+                    Link with phone number → enter this code:
+                  </p>
+                  <p className="text-2xl font-mono font-bold tracking-[0.3em] text-primary">
+                    {pairingCode}
+                  </p>
+                </div>
+              )}
             </div>
           )}
 

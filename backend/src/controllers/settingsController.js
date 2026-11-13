@@ -38,6 +38,13 @@ const wahaQr = asyncHandler(async (req, res) => {
   success(res, result);
 });
 
+const wahaPairingCode = asyncHandler(async (req, res) => {
+  const { phone } = req.body;
+  if (!phone) throw new ValidationError('phone number is required');
+  const result = await baileysService.requestPairingCode(phone);
+  success(res, result);
+});
+
 const testWhatsapp = asyncHandler(async (req, res) => {
   const { to } = req.body;
   if (!to) throw new ValidationError('to number is required');
@@ -52,5 +59,5 @@ const wahaLogout = asyncHandler(async (req, res) => {
 
 module.exports = {
   getAll, update, testEmail, verifySmtp,
-  wahaStatus, wahaQr, testWhatsapp, wahaLogout,
+  wahaStatus, wahaQr, wahaPairingCode, testWhatsapp, wahaLogout,
 };

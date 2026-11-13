@@ -30,6 +30,11 @@ let reconnectTimer  = null;
 let connectAttempt  = 0;          // reset to 0 on successful connect or manual logout
 const MAX_AUTO_RETRIES = 10;      // after this many consecutive failures, stop and wait for user action
 
+// Pairing-code linking (alternative to QR — no second-scan race)
+let pairingPhone       = null;    // digits-only sender number, e.g. '919876543210'
+let pairingRequested   = false;   // one requestPairingCode call per socket
+let currentPairingCode = null;
+
 const emitter = new EventEmitter();
 emitter.setMaxListeners(20);
 
@@ -120,19 +125,25 @@ async function connect(attempt = 1) {
         currentQr       = qr;
         connectionState = 'qr';
         emitter.emit('qr', qr);
+        maybeRequestPairingCode();
         logger.info('Baileys: QR code ready — open Settings → WhatsApp to scan');
       }
 
       if (connection === 'open') {
-        currentQr       = null;
-        connectionState = 'open';
-        connectAttempt  = 0; // reset backoff counter on success
+        currentQr         = null;
+        connectionState   = 'open';
+        connectAttempt    = 0; // reset backoff counter on success
+        pairingPhone      = null;
+        pairingRequested  = false;
+        currentPairingCode = null;
         emitter.emit('connected');
         logger.info('Baileys: WhatsApp connected ✓');
       }
 
       if (connection === 'close') {
-        connectionState = 'closed';
+        connectionState    = 'closed';
+        currentPairingCode = null;
+        pairingRequested   = false; // fresh socket may need a new code
         emitter.emit('disconnected');
 
         const statusCode  = lastDisconnect?.error?.output?.statusCode;
@@ -210,7 +221,8 @@ async function stopClient() {
     try { sock.end(undefined); } catch (_) { /* ignore */ }
     sock = null;
   }
-  connectionState = 'closed';
+  connectionState    = 'closed';
+  currentPairingCode = null;
   logger.info('Baileys: client stopped');
 }
 
@@ -232,6 +244,74 @@ function getSessionStatus() {
     closed:     { ok: false, status: 'STOPPED'      },
   };
   return Promise.resolve(map[connectionState] || { ok: false, status: 'STOPPED' });
+}
+
+// ── Pairing code (phone-number linking, no QR scan) ──────────────────────────
+
+/**
+ * Ask Baileys for a pairing code whenever a QR event arrives while a pairing
+ * phone number is set and the session isn't registered yet. Called from the
+ * connection.update handler; also invoked directly by requestPairingCode().
+ */
+async function maybeRequestPairingCode() {
+  if (!pairingPhone || pairingRequested || !sock) return;
+  if (sock.authState?.creds?.registered) return;
+  pairingRequested = true;
+  try {
+    const code = await sock.requestPairingCode(pairingPhone);
+    currentPairingCode = code;
+    logger.info('Baileys: pairing code generated');
+    emitter.emit('pairing-code', code);
+  } catch (e) {
+    pairingRequested = false; // allow retry on next QR rotation / reconnect
+    logger.warn({ err: e.message }, 'Baileys: pairing code request failed');
+  }
+}
+
+/**
+ * Start (or restart) WhatsApp linking via an 8-character pairing code instead
+ * of a QR scan. The user enters the code on their phone under
+ * WhatsApp → Linked Devices → Link a Device → "Link with phone number".
+ *
+ * `phone` must be digits only with country code, e.g. '919876543210'.
+ * Resolves with { ok, code } or { ok:false, error } after up to 30s.
+ */
+async function requestPairingCode(phone) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (digits.length < 10 || digits.length > 15) {
+    return { ok: false, error: 'Enter a valid WhatsApp number with country code, e.g. 919876543210' };
+  }
+  if (connectionState === 'open') {
+    return { ok: false, error: 'Already connected — no pairing needed.' };
+  }
+
+  pairingPhone       = digits;
+  pairingRequested   = false;
+  currentPairingCode = null;
+
+  // Kick off a connection if the socket is fully stopped so a QR event (and
+  // therefore a pairing-code request) is generated.
+  if (connectionState === 'closed') {
+    connectAttempt = 0;
+    connect(1).catch(() => {});
+  }
+
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      emitter.removeListener('pairing-code', onCode);
+      resolve({ ok: false, error: 'Timed out waiting for pairing code. Try again in a moment.' });
+    }, 30_000);
+
+    const onCode = (code) => {
+      clearTimeout(timer);
+      resolve({ ok: true, code });
+    };
+
+    emitter.once('pairing-code', onCode);
+    // If a socket already exists, request immediately — the QR-event path in
+    // connection.update is the fallback for fresh/reconnecting sockets.
+    maybeRequestPairingCode().catch(() => {});
+  });
 }
 
 async function getQrCode() {
@@ -293,13 +373,15 @@ async function logout() {
   await stopClient();
   fs.rmSync(AUTH_DIR, { recursive: true, force: true });
   fs.mkdirSync(AUTH_DIR, { recursive: true });
-  connectAttempt = 0;
+  connectAttempt   = 0;
+  pairingPhone     = null;
+  pairingRequested = false;
   logger.info('Baileys: logged out — auth state cleared');
   await connect(1);
 }
 
 module.exports = {
   startClient, stopClient,
-  sendMessage, getSessionStatus, getQrCode,
+  sendMessage, getSessionStatus, getQrCode, requestPairingCode,
   sendTestMessage, logout, emitter,
 };
