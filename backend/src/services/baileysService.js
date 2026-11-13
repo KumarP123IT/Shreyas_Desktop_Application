@@ -27,18 +27,17 @@ let sock            = null;
 let currentQr       = null;
 let connectionState = 'closed';   // 'closed' | 'connecting' | 'open' | 'qr'
 let reconnectTimer  = null;
-let loggedOutCode   = 401;        // filled after first import
+let connectAttempt  = 0;          // reset to 0 on successful connect or manual logout
+const MAX_AUTO_RETRIES = 10;      // after this many consecutive failures, stop and wait for user action
 
 const emitter = new EventEmitter();
 emitter.setMaxListeners(20);
 
 // ── Lazy ESM loader ──────────────────────────────────────────────────────────
-// Baileys is ESM-only; dynamic import() works from CommonJS in Node 20.
 let _baileys = null;
 async function getBaileys() {
   if (!_baileys) {
     _baileys = await import('@whiskeysockets/baileys');
-    loggedOutCode = _baileys.DisconnectReason?.loggedOut ?? 401;
   }
   return _baileys;
 }
@@ -47,14 +46,12 @@ async function getBaileys() {
 
 function normaliseJid(to) {
   const s = String(to).trim();
-  // Already a full JID (…@s.whatsapp.net, …@lid, …@g.us) — don't mangle it.
-  // The old digits-first check meant `includes('@')` could never match.
   if (s.includes('@')) return s;
   const digits = s.replace(/\D/g, '');
   return `${digits}@s.whatsapp.net`;
 }
 
-function reconnect(attempt, delayMs = 0) {
+function scheduleReconnect(attempt, delayMs) {
   if (reconnectTimer) clearTimeout(reconnectTimer);
   reconnectTimer = setTimeout(() => connect(attempt), delayMs);
 }
@@ -64,12 +61,22 @@ function reconnect(attempt, delayMs = 0) {
 async function connect(attempt = 1) {
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
 
+  // Stop auto-retrying after MAX_AUTO_RETRIES — user must action from UI
+  if (attempt > MAX_AUTO_RETRIES) {
+    connectionState = 'closed';
+    logger.warn({ attempt }, 'Baileys: max auto-reconnect attempts reached — waiting for user to trigger reconnect from UI');
+    return;
+  }
+
+  connectAttempt = attempt;
+
   try {
     const {
       makeWASocket,
       useMultiFileAuthState,
       fetchLatestBaileysVersion,
       Browsers,
+      DisconnectReason,
     } = await getBaileys();
 
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
@@ -78,15 +85,27 @@ async function connect(attempt = 1) {
 
     connectionState = 'connecting';
 
+    // Use a child logger set to 'warn' so Baileys internal trace/debug/info
+    // messages don't flood the application log file.
+    const baileysLogger = logger.child({ module: 'baileys' });
+    baileysLogger.level = 'warn';
+
     sock = makeWASocket({
       version,
-      auth: state,
+      auth:    state,
       browser: Browsers.macOS('Desktop'),
       printQRInTerminal: false,
-      logger: logger.child({ module: 'baileys' }),
-      connectTimeoutMs: 60_000,
+      logger:  baileysLogger,
+      connectTimeoutMs:   60_000,
       retryRequestDelayMs: 2_000,
-      maxMsgRetryCount: 3,
+      maxMsgRetryCount:    3,
+      // syncFullHistory:true (the Baileys default) causes WhatsApp to drop
+      // the connection with status 428 before a QR is generated on a fresh
+      // session. Disabling it lets the QR flow complete normally.
+      syncFullHistory:       false,
+      // Don't mark the linked device as online — reduces server-side
+      // suspicion on new sessions that have no prior message history.
+      markOnlineOnConnect:   false,
     });
 
     // Save credentials whenever they change
@@ -100,12 +119,13 @@ async function connect(attempt = 1) {
         currentQr       = qr;
         connectionState = 'qr';
         emitter.emit('qr', qr);
-        logger.info('Baileys: QR code ready for scanning');
+        logger.info('Baileys: QR code ready — open Settings → WhatsApp to scan');
       }
 
       if (connection === 'open') {
         currentQr       = null;
         connectionState = 'open';
+        connectAttempt  = 0; // reset backoff counter on success
         emitter.emit('connected');
         logger.info('Baileys: WhatsApp connected ✓');
       }
@@ -114,18 +134,25 @@ async function connect(attempt = 1) {
         connectionState = 'closed';
         emitter.emit('disconnected');
 
-        const statusCode = lastDisconnect?.error?.output?.statusCode;
-        const isLoggedOut = statusCode === loggedOutCode;
-        logger.warn({ statusCode, isLoggedOut }, 'Baileys: connection closed');
+        const statusCode  = lastDisconnect?.error?.output?.statusCode;
+        const reason      = Object.entries(DisconnectReason).find(([, v]) => v === statusCode)?.[0] ?? statusCode;
+        const isLoggedOut = statusCode === DisconnectReason.loggedOut;        // 401
+        const isBadSession = statusCode === DisconnectReason.badSession;      // 500
+        const isForbidden  = statusCode === DisconnectReason.forbidden;       // 403
 
-        if (isLoggedOut) {
-          // Wipe auth state so a fresh QR is generated
+        logger.warn({ statusCode, reason, isLoggedOut }, 'Baileys: connection closed');
+
+        if (isLoggedOut || isBadSession || isForbidden) {
+          // Wipe auth state — a fresh QR scan is required
+          logger.info({ reason }, 'Baileys: clearing auth state and restarting for fresh QR');
           fs.rmSync(AUTH_DIR, { recursive: true, force: true });
           fs.mkdirSync(AUTH_DIR, { recursive: true });
-          reconnect(1, 1000);
+          connectAttempt = 0;
+          scheduleReconnect(1, 2_000);
         } else {
+          // Transient error — exponential backoff capped at 60s
           const delay = Math.min(5_000 * attempt, 60_000);
-          reconnect(attempt + 1, delay);
+          scheduleReconnect(attempt + 1, delay);
         }
       }
     });
@@ -137,9 +164,6 @@ async function connect(attempt = 1) {
         if (msg.key.fromMe) continue;
         if (!msg.message)   continue;
 
-        // Baileys 7 can deliver the sender as an @lid address; in that case
-        // remoteJidAlt holds the real phone-number JID we can reply to and
-        // match against the configured recipient number.
         const jid = msg.key.remoteJid || '';
         if (jid.endsWith('@g.us') || jid.endsWith('@broadcast')) continue;
         const senderJid = jid.endsWith('@lid') && msg.key.remoteJidAlt
@@ -168,7 +192,8 @@ async function connect(attempt = 1) {
   } catch (err) {
     logger.error({ err }, 'Baileys: connect() error');
     connectionState = 'closed';
-    reconnect(attempt + 1, 10_000);
+    const delay = Math.min(5_000 * attempt, 60_000);
+    scheduleReconnect(attempt + 1, delay);
   }
 }
 
@@ -200,10 +225,10 @@ async function sendMessage(to, text) {
 
 function getSessionStatus() {
   const map = {
-    open:       { ok: true,  status: 'WORKING'     },
-    qr:         { ok: true,  status: 'SCAN_QR_CODE' },
-    connecting: { ok: false, status: 'CONNECTING'  },
-    closed:     { ok: false, status: 'STOPPED'     },
+    open:       { ok: true,  status: 'WORKING'      },
+    qr:         { ok: true,  status: 'SCAN_QR_CODE'  },
+    connecting: { ok: false, status: 'CONNECTING'   },
+    closed:     { ok: false, status: 'STOPPED'      },
   };
   return Promise.resolve(map[connectionState] || { ok: false, status: 'STOPPED' });
 }
@@ -213,6 +238,7 @@ async function getQrCode() {
     return { ok: false, error: 'Already connected — no QR needed.' };
   }
 
+  // If we have a fresh QR ready, return it immediately
   if (currentQr) {
     try {
       const dataUri = await QRCode.toDataURL(currentQr, { width: 300, margin: 2 });
@@ -222,11 +248,18 @@ async function getQrCode() {
     }
   }
 
-  // Wait up to 20s for the next QR event
+  // If the auto-retry limit was hit, kick off a fresh connect so a new QR
+  // is generated rather than making the user restart the service.
+  if (connectionState === 'closed') {
+    connectAttempt = 0;
+    connect(1).catch(() => {});
+  }
+
+  // Wait up to 30s for the next QR event
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
-      resolve({ ok: false, error: 'Timed out waiting for QR code.' });
-    }, 20_000);
+      resolve({ ok: false, error: 'Timed out waiting for QR code. The WhatsApp server may be temporarily unavailable — try again in a moment.' });
+    }, 30_000);
 
     emitter.once('qr', async (rawQr) => {
       clearTimeout(timer);
@@ -237,9 +270,6 @@ async function getQrCode() {
         resolve({ ok: false, error: e.message });
       }
     });
-
-    // Kick off a new connection if idle so a QR is generated
-    if (connectionState === 'closed') connect(1).catch(() => {});
   });
 }
 
@@ -251,6 +281,7 @@ async function logout() {
   await stopClient();
   fs.rmSync(AUTH_DIR, { recursive: true, force: true });
   fs.mkdirSync(AUTH_DIR, { recursive: true });
+  connectAttempt = 0;
   logger.info('Baileys: logged out — auth state cleared');
   await connect(1);
 }
