@@ -24,10 +24,10 @@ const STEPS = [
   { label: 'Set Schedule',  desc: 'Dates & activation' },
 ];
 
-export default function UploadWizard({ onClose }) {
+export default function UploadWizard({ onClose, preselectedCustomerId }) {
   const [step, setStep] = useState(0);
   const [file, setFile] = useState(null);
-  const [customerId, setCustomerId] = useState('');
+  const [customerId, setCustomerId] = useState(preselectedCustomerId ? String(preselectedCustomerId) : '');
   const [uploadResult, setUploadResult] = useState(null);
   const [editedRows, setEditedRows] = useState([]);
   const [startDate, setStartDate] = useState('');

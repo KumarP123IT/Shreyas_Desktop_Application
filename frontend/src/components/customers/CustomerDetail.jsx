@@ -4,20 +4,22 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Edit2, Save, X, Upload, FileText,
   CheckCircle2, XCircle, AlertTriangle, ChevronDown, ChevronUp,
-  TrendingDown, Package,
+  TrendingDown, TrendingUp, Package, Truck, Calendar, ChevronRight,
 } from 'lucide-react';
 import clsx from 'clsx';
-import { format } from 'date-fns';
+import { format, differenceInDays } from 'date-fns';
 import { useRef } from 'react';
 
 import { customersApi } from '@/api/customers';
 import { mslApi } from '@/api/msl';
 import { invoicesApi } from '@/api/invoices';
+import { deliveriesApi } from '@/api/forecasts';
 import { useToast } from '@/components/ui/Toast';
 import PageHeader from '@/components/ui/PageHeader';
 import Dialog, { ConfirmDialog } from '@/components/ui/Dialog';
 import CustomerForm from './CustomerForm';
 import SkeletonTable from '@/components/ui/SkeletonTable';
+import UploadWizard from '@/components/upload/UploadWizard';
 
 export default function CustomerDetail() {
   const { id } = useParams();
@@ -112,11 +114,7 @@ export default function CustomerDetail() {
         {activeTab === 'details' && <DetailsTab customer={customer} />}
         {activeTab === 'msl' && <MslTab customer={customer} mslDefault={mslDefault} customerId={customerId} />}
         {activeTab === 'reminders' && <RemindersTab customer={customer} />}
-        {activeTab === 'deliveries' && (
-          <div className="py-8 text-center text-text-secondary text-sm">
-            Deliveries will appear here once forecasts are uploaded. (Phase 3)
-          </div>
-        )}
+        {activeTab === 'deliveries' && <DeliveriesTab customerId={customerId} />}
         {activeTab === 'invoice' && <InvoiceTab customerId={customerId} />}
       </div>
 
@@ -265,6 +263,209 @@ function RemindersTab({ customer }) {
         ))}
       </div>
       <p className="text-xs text-text-secondary">Edit reminder defaults per delivery in the Delivery detail page (Phase 5).</p>
+    </div>
+  );
+}
+
+// ─── Deliveries Tab ───────────────────────────────────────────────────────────
+
+const DELIVERY_STATUS_STYLE = {
+  active:    'bg-green-100 text-success',
+  draft:     'bg-gray-100 text-text-secondary',
+  delivered: 'bg-blue-100 text-info',
+  cancelled: 'bg-gray-100 text-text-secondary',
+};
+
+function DeliveriesTab({ customerId }) {
+  const navigate    = useNavigate();
+  const toast       = useToast();
+  const qc          = useQueryClient();
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [page, setPage]             = useState(1);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['deliveries', { customerId, page }],
+    queryFn:  () => deliveriesApi.list({ customerId, page, pageSize: 10 }),
+    select:   (r) => r.data,
+  });
+
+  const deliveries = data?.data ?? [];
+  const meta       = data?.meta ?? {};
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-semibold text-text">Deliveries</p>
+          <p className="text-xs text-text-secondary mt-0.5">
+            {meta.total ?? 0} delivery record{meta.total !== 1 ? 's' : ''} for this customer
+          </p>
+        </div>
+        <button
+          className="fiori-btn-primary flex items-center gap-1.5"
+          onClick={() => setUploadOpen(true)}
+        >
+          <Upload size={14} /> Upload Forecast
+        </button>
+      </div>
+
+      {isLoading ? (
+        <SkeletonTable rows={4} cols={5} />
+      ) : deliveries.length === 0 ? (
+        <div className="py-10 text-center text-sm text-text-secondary">
+          <Truck size={32} className="mx-auto mb-2 opacity-30" />
+          No deliveries yet.
+          <br />
+          <button
+            className="fiori-btn-secondary mt-3 text-xs"
+            onClick={() => setUploadOpen(true)}
+          >
+            <Upload size={12} className="inline mr-1" /> Upload first forecast
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="rounded-lg border border-border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-background border-b border-border text-left">
+                  <th className="px-4 py-2 text-xs font-semibold text-text-secondary uppercase">Month</th>
+                  <th className="px-4 py-2 text-xs font-semibold text-text-secondary uppercase">Parts</th>
+                  <th className="px-4 py-2 text-xs font-semibold text-text-secondary uppercase">MSL</th>
+                  <th className="px-4 py-2 text-xs font-semibold text-text-secondary uppercase">Due Date</th>
+                  <th className="px-4 py-2 text-xs font-semibold text-text-secondary uppercase">Status</th>
+                  <th className="px-4 py-2 w-8" />
+                </tr>
+              </thead>
+              <tbody>
+                {deliveries.map((d) => {
+                  const belowMin = d.mslSummary?.BELOW_MIN ?? 0;
+                  const aboveMax = d.mslSummary?.ABOVE_MAX ?? 0;
+                  const hasAlert = belowMin > 0 || aboveMax > 0;
+                  const daysLeft = d.dueDate
+                    ? differenceInDays(new Date(d.dueDate), new Date())
+                    : null;
+                  return (
+                    <tr
+                      key={d.id}
+                      className={clsx(
+                        'border-b border-border last:border-0 hover:bg-background/60 cursor-pointer',
+                        hasAlert && 'border-l-2 border-l-error'
+                      )}
+                      onClick={() => navigate(`/deliveries/${d.id}`)}
+                    >
+                      <td className="px-4 py-2.5 font-mono text-xs text-text font-medium">
+                        {d.forecastMonth}
+                      </td>
+                      <td className="px-4 py-2.5 text-text-secondary text-xs">
+                        {d._count?.items ?? '—'}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {belowMin === 0 && aboveMax === 0 ? (
+                          <span className="text-xs text-success flex items-center gap-1">
+                            <CheckCircle2 size={11} /> OK
+                          </span>
+                        ) : (
+                          <div className="flex gap-1 flex-wrap">
+                            {belowMin > 0 && (
+                              <span className="text-xs text-error flex items-center gap-0.5 font-semibold">
+                                <TrendingDown size={10} /> {belowMin}
+                              </span>
+                            )}
+                            {aboveMax > 0 && (
+                              <span className="text-xs text-warning flex items-center gap-0.5 font-semibold">
+                                <TrendingUp size={10} /> {aboveMax}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {d.dueDate ? (
+                          <span className={clsx(
+                            'text-xs flex items-center gap-1',
+                            daysLeft !== null && daysLeft < 0
+                              ? 'text-error font-semibold'
+                              : daysLeft !== null && daysLeft <= 3
+                              ? 'text-warning font-semibold'
+                              : 'text-text-secondary'
+                          )}>
+                            <Calendar size={11} />
+                            {format(new Date(d.dueDate), 'dd MMM yy')}
+                            {daysLeft !== null && (
+                              <span className="opacity-70">
+                                {daysLeft < 0
+                                  ? ` (${Math.abs(daysLeft)}d over)`
+                                  : daysLeft === 0 ? ' (today)'
+                                  : ` (${daysLeft}d)`}
+                              </span>
+                            )}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-text-secondary">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span className={clsx(
+                          'px-2 py-0.5 rounded-full text-xs font-semibold',
+                          DELIVERY_STATUS_STYLE[d.status] || 'bg-gray-100 text-text-secondary'
+                        )}>
+                          {d.status}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-text-secondary">
+                        <ChevronRight size={14} />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination */}
+          {meta.totalPages > 1 && (
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-xs text-text-secondary">
+                Page {page} of {meta.totalPages}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  className="fiori-btn-secondary text-xs py-1"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => p - 1)}
+                >
+                  ← Prev
+                </button>
+                <button
+                  className="fiori-btn-secondary text-xs py-1"
+                  disabled={page >= meta.totalPages}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  Next →
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Upload Forecast dialog */}
+      <Dialog
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        title="Upload Forecast"
+        size="lg"
+      >
+        <UploadWizard
+          preselectedCustomerId={customerId}
+          onClose={() => {
+            setUploadOpen(false);
+            qc.invalidateQueries({ queryKey: ['deliveries', { customerId }] });
+          }}
+        />
+      </Dialog>
     </div>
   );
 }
