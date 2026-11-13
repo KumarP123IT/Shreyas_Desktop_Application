@@ -134,6 +134,23 @@ export default function WhatsAppSettings() {
   const step2Done = isConnected && !!receiverNo;
   const activeStep = !step1Done ? 1 : !step2Done ? 2 : 3;
 
+  // ── Auto-refresh QR while WhatsApp is waiting for a (re)scan ──────────
+  // Baileys rc14 emits a new QR after the first scan ("scan again" prompt).
+  // The backend always serves the latest QR via wahaQr(), so poll it while
+  // in SCAN_QR_CODE state to pick up the refreshed code automatically.
+  useEffect(() => {
+    if (!needsQr) return;
+    const refreshQr = async () => {
+      try {
+        const r = await settingsApi.wahaQr();
+        const newQr = r.data.data?.qr;
+        if (newQr) setQr(newQr);
+      } catch { /* status poll surfaces connection errors */ }
+    };
+    const id = setInterval(refreshQr, 15_000);
+    return () => clearInterval(id);
+  }, [needsQr]);
+
   if (isLoading) return (
     <div className="space-y-3">
       {[1,2,3].map(i => <div key={i} className="skeleton h-20 rounded-card" />)}

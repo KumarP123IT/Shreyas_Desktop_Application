@@ -10,13 +10,14 @@ import {
   ArrowLeft, RefreshCw, Calendar, Bell, Download,
   TrendingDown, TrendingUp, CheckCircle2, HelpCircle, AlertTriangle,
   Mail, MessageSquare, Clock, Zap, Building2, FileText,
-  Package, Info, XCircle, CheckCircle, Trash2,
+  Package, Info, XCircle, CheckCircle, Trash2, Receipt,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { format, differenceInDays } from 'date-fns';
 
 import { deliveriesApi, forecastsApi } from '@/api/forecasts';
 import { remindersApi } from '@/api/reminders';
+import { InvoiceTab } from '@/components/customers/CustomerDetail';
 import { useToast } from '@/components/ui/Toast';
 import PageHeader from '@/components/ui/PageHeader';
 import SkeletonTable from '@/components/ui/SkeletonTable';
@@ -27,6 +28,7 @@ const TABS = [
   { id: 'customer',  label: 'Customer',      icon: Building2   },
   { id: 'forecast',  label: 'Forecast',       icon: FileText    },
   { id: 'materials', label: 'Material Sheet', icon: Package     },
+  { id: 'invoices',  label: 'Invoices',       icon: Receipt     },
   { id: 'msl',       label: 'MSL Monitor',    icon: TrendingDown },
   { id: 'schedule',  label: 'Schedule',       icon: Calendar    },
   { id: 'alerts',    label: 'Alert Config',   icon: Bell        },
@@ -192,6 +194,7 @@ export default function DeliveryDetail() {
         {activeTab === 'customer'  && <CustomerTab  customer={delivery.customer} />}
         {activeTab === 'forecast'  && <ForecastTab  delivery={delivery} />}
         {activeTab === 'materials' && <MaterialSheet delivery={delivery} />}
+        {activeTab === 'invoices'  && <InvoiceTab customerId={delivery.customerId} />}
         {activeTab === 'msl'       && <MslMonitorTab items={delivery.items} mslSummary={mslSummary} />}
         {activeTab === 'schedule'  && <ScheduleTab  delivery={delivery} deliveryId={deliveryId} />}
         {activeTab === 'alerts'    && <AlertsTab    delivery={delivery} deliveryId={deliveryId} />}

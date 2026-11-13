@@ -95,6 +95,7 @@ async function connect(attempt = 1) {
       auth:    state,
       browser: Browsers.macOS('Desktop'),
       printQRInTerminal: false,
+      generateHighQualityLinkPreview: false,
       logger:  baileysLogger,
       connectTimeoutMs:   60_000,
       retryRequestDelayMs: 2_000,
@@ -255,21 +256,32 @@ async function getQrCode() {
     connect(1).catch(() => {});
   }
 
-  // Wait up to 30s for the next QR event
+  // Wait up to 30s for the next QR event. Use `on` (not `once`) so the
+  // listener stays registered for the lifetime of this promise — Baileys
+  // rc14 emits a fresh QR on every "scan again" prompt during multi-device
+  // linking, and each event must be able to resolve a pending request.
   return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      resolve({ ok: false, error: 'Timed out waiting for QR code. The WhatsApp server may be temporarily unavailable — try again in a moment.' });
-    }, 30_000);
-
-    emitter.once('qr', async (rawQr) => {
-      clearTimeout(timer);
+    const onQr = async (rawQr) => {
+      cleanup();
       try {
         const dataUri = await QRCode.toDataURL(rawQr, { width: 300, margin: 2 });
         resolve({ ok: true, qr: dataUri });
       } catch (e) {
         resolve({ ok: false, error: e.message });
       }
-    });
+    };
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      emitter.removeListener('qr', onQr);
+    };
+
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve({ ok: false, error: 'Timed out waiting for QR code. The WhatsApp server may be temporarily unavailable — try again in a moment.' });
+    }, 30_000);
+
+    emitter.on('qr', onQr);
   });
 }
 

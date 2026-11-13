@@ -283,7 +283,7 @@ const STATUS_ICON = {
   cancelled: XCircle,
 };
 
-function InvoiceTab({ customerId }) {
+export function InvoiceTab({ customerId }) {
   const toast = useToast();
   const qc    = useQueryClient();
   const fileRef = useRef(null);

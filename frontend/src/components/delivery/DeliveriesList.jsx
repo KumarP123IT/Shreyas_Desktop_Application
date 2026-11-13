@@ -3,12 +3,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
   Truck, Upload, ChevronRight, TrendingDown, TrendingUp,
-  CheckCircle2, AlertTriangle, Calendar, Trash2,
+  CheckCircle2, AlertTriangle, Calendar, Trash2, FileText,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { format, differenceInDays } from 'date-fns';
 
 import { deliveriesApi } from '@/api/forecasts';
+import { customersApi } from '@/api/customers';
+import { InvoiceTab } from '@/components/customers/CustomerDetail';
 import Dialog, { ConfirmDialog } from '@/components/ui/Dialog';
 import PageHeader from '@/components/ui/PageHeader';
 import SkeletonTable from '@/components/ui/SkeletonTable';
@@ -31,7 +33,8 @@ export default function DeliveriesList() {
   const qc = useQueryClient();
   const [page, setPage]           = useState(1);
   const [status, setStatus]       = useState('');
-  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadOpen, setUploadOpen]     = useState(false);
+  const [invoiceOpen, setInvoiceOpen]   = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
 
   const { data, isLoading } = useQuery({
@@ -60,9 +63,14 @@ export default function DeliveriesList() {
         title="Deliveries"
         subtitle={`${meta.total ?? 0} delivery records`}
         actions={
-          <button className="fiori-btn-primary flex items-center gap-1.5" onClick={() => setUploadOpen(true)}>
-            <Upload size={16} /> Upload Forecast
-          </button>
+          <div className="flex items-center gap-2">
+            <button className="fiori-btn-secondary flex items-center gap-1.5" onClick={() => setInvoiceOpen(true)}>
+              <FileText size={16} /> Upload Invoice
+            </button>
+            <button className="fiori-btn-primary flex items-center gap-1.5" onClick={() => setUploadOpen(true)}>
+              <Upload size={16} /> Upload Forecast
+            </button>
+          </div>
         }
       />
 
@@ -178,6 +186,8 @@ export default function DeliveriesList() {
         <UploadWizard onClose={() => setUploadOpen(false)} />
       </Dialog>
 
+      <InvoiceUploadDialog open={invoiceOpen} onClose={() => setInvoiceOpen(false)} />
+
       <ConfirmDialog
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
@@ -191,6 +201,50 @@ export default function DeliveriesList() {
         loading={deleteMutation.isPending}
       />
     </div>
+  );
+}
+
+// ── Invoice upload dialog ────────────────────────────────────────────────────
+// Lets the user pick a customer, then reuses the same InvoiceTab UI from the
+// Customer detail page (upload PDF → review parsed rows → apply to stock).
+function InvoiceUploadDialog({ open, onClose }) {
+  const [customerId, setCustomerId] = useState('');
+
+  const { data: customers } = useQuery({
+    queryKey: ['customers', { pageSize: 200 }],
+    queryFn:  () => customersApi.list({ pageSize: 200 }),
+    select:   (r) => r.data.data,
+    enabled:  open,
+  });
+
+  return (
+    <Dialog open={open} onClose={onClose} title="Upload Invoice" size="lg">
+      {!customerId ? (
+        <div className="space-y-3 max-w-sm">
+          <div>
+            <label className="fiori-label" htmlFor="inv-customer">Customer</label>
+            <select
+              id="inv-customer"
+              className="fiori-input"
+              value={customerId}
+              onChange={(e) => setCustomerId(e.target.value)}
+            >
+              <option value="">Select a customer…</option>
+              {(customers ?? []).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}{c.supplierCode ? ` (${c.supplierCode})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          <p className="text-xs text-text-secondary">
+            Pick the customer this invoice belongs to, then upload the PDF to deduct quantities from stock.
+          </p>
+        </div>
+      ) : (
+        <InvoiceTab customerId={parseInt(customerId, 10)} />
+      )}
+    </Dialog>
   );
 }
 
