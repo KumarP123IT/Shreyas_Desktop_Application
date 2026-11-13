@@ -289,4 +289,4 @@ function tryGenericAdapter(text) {
   };
 }
 
-module.exports = { parsePdf };
+module.exports = { parsePdf, extractText };

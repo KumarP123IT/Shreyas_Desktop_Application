@@ -52,6 +52,7 @@ model Customer {
 
   forecasts  Forecast[]
   deliveries Delivery[]
+  invoices   Invoice[]
   mslDefault MslCustomerDefault?
   auditLogs  AuditLog[]
 
@@ -301,6 +302,44 @@ model AppSetting {
   updatedAt DateTime @updatedAt
 
   @@map("app_settings")
+}
+
+// ─── Invoice ──────────────────────────────────────────────────────────────────
+
+model Invoice {
+  id           Int       @id @default(autoincrement())
+  customerId   Int
+  invoiceNo    String?
+  invoiceDate  DateTime?
+  filePath     String
+  fileName     String
+  fileType     String    // "pdf"
+  status       String    @default("pending") // pending | applied | cancelled
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  customer Customer       @relation(fields: [customerId], references: [id])
+  items    InvoiceItem[]
+
+  @@index([customerId])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id         Int    @id @default(autoincrement())
+  invoiceId  Int
+  partNumber String
+  partName   String
+  qty        Int    @default(0)
+  stockId    Int?   // null if part not found in global stocks
+  applied    Boolean @default(false)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@index([invoiceId])
+  @@map("invoice_items")
 }
 
 // ─── Stocks ───────────────────────────────────────────────────────────────────
