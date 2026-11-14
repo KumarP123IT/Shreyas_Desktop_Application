@@ -33,6 +33,10 @@ async function generateReminders(deliveryId, userId = null) {
   }
 
   let offsets = delivery.reminderOffsets || delivery.customer?.reminderOffsets;
+  // reminderOffsets is stored as a JSON string on the model — parse it
+  if (typeof offsets === 'string') {
+    try { offsets = JSON.parse(offsets); } catch { offsets = null; }
+  }
   if (!offsets) {
     // Global default from Settings → Reminder Defaults (JSON array of day offsets)
     const s = await settingsRepo.getAllDecrypted();

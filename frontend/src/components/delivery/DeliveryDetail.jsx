@@ -455,7 +455,17 @@ function ScheduleTab({ delivery, deliveryId }) {
   );
   const mutation = useMutation({
     mutationFn: (data) => deliveriesApi.updateSchedule(deliveryId, data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['delivery', deliveryId] }); toast.success('Schedule saved — reminders will be regenerated'); },
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['delivery', deliveryId] });
+      qc.invalidateQueries({ queryKey: ['reminders'] });
+      const r = res.data?.data?.reminders;
+      const msg = r?.created != null
+        ? `Schedule saved — ${r.created} reminder(s) scheduled${r.skipped ? `, ${r.skipped} skipped (past or outside window)` : ''}`
+        : r?.stopped != null
+          ? 'Schedule saved — pending reminders stopped'
+          : 'Schedule saved — reminders regenerated';
+      toast.success(msg);
+    },
     onError: (e) => toast.error(e.response?.data?.error?.message || 'Failed to save'),
   });
   const valid = !startDate || !dueDate || new Date(dueDate) >= new Date(startDate);
@@ -512,7 +522,14 @@ function AlertsTab({ delivery, deliveryId }) {
 
   const saveMutation = useMutation({
     mutationFn: (data) => deliveriesApi.updateSchedule(deliveryId, data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['delivery', deliveryId] }); toast.success('Alert config saved'); },
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['delivery', deliveryId] });
+      qc.invalidateQueries({ queryKey: ['reminders'] });
+      const r = res.data?.data?.reminders;
+      toast.success(r?.created != null
+        ? `Alert config saved — ${r.created} reminder(s) scheduled`
+        : 'Alert config saved');
+    },
     onError: (e) => toast.error(e.response?.data?.error?.message || 'Failed to save'),
   });
 

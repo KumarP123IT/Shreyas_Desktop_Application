@@ -8,6 +8,9 @@ const { parseId, ValidationError } = require('../utils/errors');
 const scheduleSchema = z.object({
   startDate: z.string().optional().nullable(),
   dueDate: z.string().optional().nullable(),
+  notifyWhatsapp: z.boolean().optional(),
+  notifyEmail: z.boolean().optional(),
+  reminderOffsets: z.array(z.number().int().positive()).max(20).optional().nullable(),
 }).refine((d) => {
   if (d.startDate && d.dueDate) return new Date(d.dueDate) >= new Date(d.startDate);
   return true;

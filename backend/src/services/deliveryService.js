@@ -84,11 +84,19 @@ async function getDelivery(id) {
       invoicedMap.set(it.partNumber, (invoicedMap.get(it.partNumber) || 0) + it.qty);
     }
   }
+
+  // Live global stock per part — this is the "pending stock": it already
+  // reflects invoice deductions because applyInvoice subtracts from Stock.quantity
+  const partNumbers = delivery.items.map((i) => i.partNumber);
+  const stocks = partNumbers.length
+    ? await prisma.stock.findMany({ where: { partNumber: { in: partNumbers } } })
+    : [];
+  const stockMap = new Map(stocks.map((s) => [s.partNumber, s]));
+
   for (const item of delivery.items) {
     const invoiced = invoicedMap.get(item.partNumber) ?? 0;
     item.invoicedQty = invoiced;
-    // Pending = forecast qty not yet covered by applied invoices
-    item.pendingQty = Math.max(0, (item.totalQty ?? 0) - invoiced);
+    item.pendingStock = stockMap.get(item.partNumber)?.quantity ?? null;
     item.deliveryStatus =
       (item.totalQty ?? 0) > 0 && invoiced >= item.totalQty ? 'delivered'
       : invoiced > 0 ? 'partial'
@@ -101,7 +109,7 @@ async function getDelivery(id) {
 /**
  * Update delivery schedule dates.
  */
-async function updateDeliverySchedule(id, { startDate, dueDate }, userId) {
+async function updateDeliverySchedule(id, { startDate, dueDate, notifyWhatsapp, notifyEmail, reminderOffsets }, userId) {
   const delivery = await prisma.delivery.findFirst({ where: { id, deletedAt: null } });
   if (!delivery) throw new NotFoundError('Delivery');
 
@@ -109,13 +117,14 @@ async function updateDeliverySchedule(id, { startDate, dueDate }, userId) {
     throw new ValidationError('Due date must be on or after start date');
   }
 
-  const updated = await prisma.delivery.update({
-    where: { id },
-    data: {
-      startDate: startDate ? new Date(startDate) : null,
-      dueDate: dueDate ? new Date(dueDate) : null,
-    },
-  });
+  const data = {};
+  if (startDate !== undefined) data.startDate = startDate ? new Date(startDate) : null;
+  if (dueDate !== undefined) data.dueDate = dueDate ? new Date(dueDate) : null;
+  if (notifyWhatsapp !== undefined) data.notifyWhatsapp = notifyWhatsapp;
+  if (notifyEmail !== undefined) data.notifyEmail = notifyEmail;
+  if (reminderOffsets !== undefined) data.reminderOffsets = reminderOffsets ? JSON.stringify(reminderOffsets) : null;
+
+  const updated = await prisma.delivery.update({ where: { id }, data });
 
   await prisma.auditLog.create({
     data: {
@@ -129,7 +138,19 @@ async function updateDeliverySchedule(id, { startDate, dueDate }, userId) {
     },
   });
 
-  return updated;
+  // Regenerate reminders so schedule/channel/offset changes take effect.
+  // Due date cleared → stop pending reminders; otherwise stop + regenerate.
+  let reminders = null;
+  try {
+    const reminderService = require('./reminderService');
+    reminders = updated.dueDate
+      ? await reminderService.restartReminders(id, userId)
+      : await reminderService.stopReminders(id, 'delivery', null, userId);
+  } catch (e) {
+    require('../config/logger').warn({ err: e.message, deliveryId: id }, 'Reminder regeneration after schedule update failed');
+  }
+
+  return { ...updated, reminders };
 }
 
 /**

@@ -544,6 +544,7 @@ export function InvoiceTab({ customerId }) {
     onSuccess:  (res) => {
       qc.invalidateQueries({ queryKey: ['invoices', customerId] });
       qc.invalidateQueries({ queryKey: ['stocks'] });
+      qc.invalidateQueries({ queryKey: ['delivery'] }); // refresh pending stock / invoiced columns
       const results = res.data.data?.results ?? [];
       const applied  = results.filter((r) => r.status === 'applied').length;
       const missing  = results.filter((r) => r.status === 'not_found').length;
