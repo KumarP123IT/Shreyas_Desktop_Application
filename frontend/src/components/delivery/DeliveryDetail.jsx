@@ -497,7 +497,7 @@ function ScheduleTab({ delivery, deliveryId }) {
       {dueDate && (
         <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-100 rounded-control text-xs text-info">
           <Info size={13} className="shrink-0 mt-0.5" />
-          <span>Setting a due date auto-generates reminders at <strong>10, 5, 3 and 1 day(s)</strong> before at <strong>9:00 AM IST</strong>. Customise in Alert Config.</span>
+          <span>Setting a due date auto-generates reminders at <strong>10, 5, 3 and 1 day(s)</strong> before, at your configured send time. Customise in Settings → Reminder Defaults.</span>
         </div>
       )}
       <button className="fiori-btn-primary flex items-center gap-1.5"
@@ -590,7 +590,7 @@ function AlertsTab({ delivery, deliveryId }) {
       <div className="p-3.5 bg-background border border-border rounded-control space-y-2">
         <p className="text-xs font-bold text-text flex items-center gap-1.5"><Bell size={13} className="text-primary" /> How reminders work</p>
         <div className="space-y-1.5 text-xs text-text-secondary">
-          <p>• Reminders fire at <strong className="text-text">09:00 AM IST</strong> on each scheduled day</p>
+          <p>• Reminders fire at your <strong className="text-text">configured send time</strong> (Settings → Reminder Defaults) on each scheduled day</p>
           <p>• WhatsApp: reply <strong className="text-text">1</strong> snooze · <strong className="text-text">2</strong> reschedule · <strong className="text-text">3</strong> mark delivered</p>
           <p>• MSL breach alerts (below MIN / above MAX) are sent as a separate automatic digest</p>
           <p>• If offline, notifications queue and send when connectivity returns</p>

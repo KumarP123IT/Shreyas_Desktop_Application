@@ -32,17 +32,25 @@ async function generateReminders(deliveryId, userId = null) {
     return { created: 0, skipped: 0 };
   }
 
+  // Global defaults from Settings → Reminder Defaults
+  const s = await settingsRepo.getAllDecrypted();
+
   let offsets = delivery.reminderOffsets || delivery.customer?.reminderOffsets;
   // reminderOffsets is stored as a JSON string on the model — parse it
   if (typeof offsets === 'string') {
     try { offsets = JSON.parse(offsets); } catch { offsets = null; }
   }
   if (!offsets) {
-    // Global default from Settings → Reminder Defaults (JSON array of day offsets)
-    const s = await settingsRepo.getAllDecrypted();
     try { offsets = s.default_reminder_offsets ? JSON.parse(s.default_reminder_offsets) : null; } catch { offsets = null; }
   }
   offsets = offsets || DEFAULT_OFFSETS;
+
+  // Send time-of-day (HH:MM, 24h, in app timezone) — Settings → Reminder Defaults
+  const [sendHour, sendMin] = String(s.default_reminder_time || '09:00')
+    .split(':').map((n) => parseInt(n, 10));
+  const hh = Number.isInteger(sendHour) && sendHour >= 0 && sendHour <= 23 ? sendHour : 9;
+  const mm = Number.isInteger(sendMin)  && sendMin  >= 0 && sendMin  <= 59 ? sendMin  : 0;
+
   const channels = [];
   if (delivery.notifyWhatsapp) channels.push('whatsapp');
   if (delivery.notifyEmail) channels.push('email');
@@ -55,13 +63,12 @@ async function generateReminders(deliveryId, userId = null) {
   let skipped = 0;
 
   for (const offset of offsets) {
-    // Calculate run time: offset days before due, at 09:00 IST
+    // Calculate run time: offset days before due, at the configured time (app TZ)
     const runDateLocal = subDays(dueDate, offset);
-    // Set to 09:00 AM IST
     const runDateIST = new Date(runDateLocal);
     runDateIST.setHours(0, 0, 0, 0);
     const runAt = fromZonedTime(
-      new Date(runDateIST.getFullYear(), runDateIST.getMonth(), runDateIST.getDate(), 9, 0, 0),
+      new Date(runDateIST.getFullYear(), runDateIST.getMonth(), runDateIST.getDate(), hh, mm, 0),
       TZ
     );
 

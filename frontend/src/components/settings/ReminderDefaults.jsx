@@ -11,6 +11,7 @@ import { useSettings } from './useSettings';
 export default function ReminderDefaults() {
   const { settings, isLoading, save, saving } = useSettings();
   const [offsets, setOffsets] = useState([10, 5, 3, 1]);
+  const [sendTime, setSendTime] = useState('09:00');
   const [newVal, setNewVal] = useState('');
 
   useEffect(() => {
@@ -20,6 +21,7 @@ export default function ReminderDefaults() {
         if (Array.isArray(parsed) && parsed.length) setOffsets(parsed);
       } catch { /* keep default */ }
     }
+    if (settings.default_reminder_time) setSendTime(settings.default_reminder_time);
   }, [settings]);
 
   const addOffset = () => {
@@ -40,7 +42,7 @@ export default function ReminderDefaults() {
           <Bell size={16} className="text-primary" /> Reminder Defaults
         </h2>
         <p className="text-sm text-text-secondary mt-0.5">
-          Days before the delivery due date at which reminders are sent (09:00 IST).
+          Days before the delivery due date at which reminders are sent, at the time below.
           A customer or delivery can override this schedule.
         </p>
       </div>
@@ -71,9 +73,21 @@ export default function ReminderDefaults() {
         </button>
       </div>
 
+      <div className="max-w-xs">
+        <label className="fiori-label" htmlFor="reminder-time">Send Time ({/* app timezone */}IST)</label>
+        <input
+          id="reminder-time" type="time" className="fiori-input"
+          value={sendTime} onChange={(e) => setSendTime(e.target.value)}
+        />
+        <p className="text-xs text-text-secondary mt-1">Reminders go out at this time on each scheduled day.</p>
+      </div>
+
       <button
         className="fiori-btn-primary flex items-center gap-1.5"
-        onClick={() => save({ default_reminder_offsets: JSON.stringify(offsets) })}
+        onClick={() => save({
+          default_reminder_offsets: JSON.stringify(offsets),
+          default_reminder_time: sendTime || '09:00',
+        })}
         disabled={saving || offsets.length === 0}
       >
         <Save size={14} /> {saving ? 'Saving…' : 'Save Defaults'}
