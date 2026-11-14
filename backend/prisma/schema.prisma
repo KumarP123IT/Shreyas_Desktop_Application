@@ -137,6 +137,7 @@ model Delivery {
   deliveredScope  String?   // "material" | "whole"
   deliveredAt     DateTime?
   reminderOffsets String?   // JSON stored as text
+  reminderTime    String?   // per-delivery send time override "HH:MM" (app TZ); null = global default
   notifyWhatsapp  Boolean   @default(true)
   notifyEmail     Boolean   @default(true)
   createdAt       DateTime  @default(now())

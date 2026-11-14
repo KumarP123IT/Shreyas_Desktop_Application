@@ -45,9 +45,10 @@ async function generateReminders(deliveryId, userId = null) {
   }
   offsets = offsets || DEFAULT_OFFSETS;
 
-  // Send time-of-day (HH:MM, 24h, in app timezone) — Settings → Reminder Defaults
-  const [sendHour, sendMin] = String(s.default_reminder_time || '09:00')
-    .split(':').map((n) => parseInt(n, 10));
+  // Send time-of-day (HH:MM, 24h, in app timezone):
+  // per-delivery override → global Settings → Reminder Defaults → 09:00
+  const timeStr = delivery.reminderTime || s.default_reminder_time || '09:00';
+  const [sendHour, sendMin] = String(timeStr).split(':').map((n) => parseInt(n, 10));
   const hh = Number.isInteger(sendHour) && sendHour >= 0 && sendHour <= 23 ? sendHour : 9;
   const mm = Number.isInteger(sendMin)  && sendMin  >= 0 && sendMin  <= 59 ? sendMin  : 0;
 

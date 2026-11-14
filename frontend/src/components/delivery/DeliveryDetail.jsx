@@ -441,6 +441,15 @@ function ScheduleTab({ delivery, deliveryId }) {
   const [dueDate, setDueDate] = useState(
     delivery.dueDate ? new Date(delivery.dueDate).toISOString().split('T')[0] : ''
   );
+  // Per-delivery reminder overrides
+  const [offsetsStr, setOffsetsStr] = useState(() => {
+    try {
+      const o = delivery.reminderOffsets ? JSON.parse(delivery.reminderOffsets) : null;
+      return Array.isArray(o) && o.length ? o.join(', ') : '';
+    } catch { return ''; }
+  });
+  const [sendTime, setSendTime] = useState(delivery.reminderTime || '');
+  const [customAt, setCustomAt] = useState(''); // datetime-local → one-time exact reminder
   const mutation = useMutation({
     mutationFn: (data) => deliveriesApi.updateSchedule(deliveryId, data),
     onSuccess: (res) => {
@@ -458,6 +467,23 @@ function ScheduleTab({ delivery, deliveryId }) {
   });
   const valid = !startDate || !dueDate || new Date(dueDate) >= new Date(startDate);
   const daysLeft = dueDate ? differenceInDays(new Date(dueDate), new Date()) : null;
+
+  const parseOffsets = (str) =>
+    str.split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n) && n > 0);
+
+  const handleSave = () => {
+    const offsets = parseOffsets(offsetsStr);
+    if (offsetsStr.trim() && offsets.length === 0) {
+      return toast.error('Reminder days must be positive numbers, e.g. "10, 5, 3, 1"');
+    }
+    mutation.mutate({
+      startDate: startDate || null,
+      dueDate: dueDate || null,
+      reminderOffsets: offsets.length ? offsets : null, // empty = clear override, use defaults
+      reminderTime: sendTime || null,
+      ...(customAt ? { customReminderAt: new Date(customAt).toISOString() } : {}),
+    });
+  };
   return (
     <div className="space-y-5 max-w-md">
       <h3 className="text-sm font-bold text-text">Delivery Schedule</h3>
@@ -485,11 +511,49 @@ function ScheduleTab({ delivery, deliveryId }) {
       {dueDate && (
         <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-100 rounded-control text-xs text-info">
           <Info size={13} className="shrink-0 mt-0.5" />
-          <span>Setting a due date auto-generates reminders at <strong>10, 5, 3 and 1 day(s)</strong> before, at your configured send time. Customise in Settings → Reminder Defaults.</span>
+          <span>Setting a due date auto-generates reminders before it. Customise days, send time and one-time reminders below.</span>
         </div>
       )}
+
+      {/* Reminder overrides for this delivery */}
+      <div className="border-t border-border pt-4 space-y-3">
+        <p className="text-xs font-bold text-text flex items-center gap-1.5"><Bell size={13} className="text-primary" /> Reminder Schedule</p>
+
+        <div>
+          <label className="fiori-label" htmlFor="sched-offsets">Days Before Due (this delivery)</label>
+          <input
+            id="sched-offsets" type="text" value={offsetsStr}
+            onChange={(e) => setOffsetsStr(e.target.value)}
+            placeholder="e.g. 10, 5, 3, 1 — leave empty for defaults"
+            className="fiori-input"
+          />
+          <p className="text-xs text-text-secondary mt-1">Comma-separated days before the due date. Empty = customer/global defaults.</p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="fiori-label" htmlFor="sched-time">Send Time</label>
+            <input
+              id="sched-time" type="time" value={sendTime}
+              onChange={(e) => setSendTime(e.target.value)}
+              className="fiori-input"
+            />
+            <p className="text-xs text-text-secondary mt-1">Empty = global default (Settings → Reminder Defaults).</p>
+          </div>
+          <div>
+            <label className="fiori-label" htmlFor="sched-custom">One-time Reminder At</label>
+            <input
+              id="sched-custom" type="datetime-local" value={customAt}
+              onChange={(e) => setCustomAt(e.target.value)}
+              className="fiori-input"
+            />
+            <p className="text-xs text-text-secondary mt-1">Exact date &amp; time for a single extra reminder.</p>
+          </div>
+        </div>
+      </div>
+
       <button className="fiori-btn-primary flex items-center gap-1.5"
-        onClick={() => mutation.mutate({ startDate: startDate || null, dueDate: dueDate || null })}
+        onClick={handleSave}
         disabled={!valid || mutation.isPending}>
         {mutation.isPending
           ? <><span className="inline-block w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Saving…</>

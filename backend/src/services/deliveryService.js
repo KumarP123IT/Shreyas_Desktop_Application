@@ -103,7 +103,7 @@ async function getDelivery(id) {
 /**
  * Update delivery schedule dates.
  */
-async function updateDeliverySchedule(id, { startDate, dueDate, notifyWhatsapp, notifyEmail, reminderOffsets }, userId) {
+async function updateDeliverySchedule(id, { startDate, dueDate, notifyWhatsapp, notifyEmail, reminderOffsets, reminderTime, customReminderAt }, userId) {
   const delivery = await prisma.delivery.findFirst({ where: { id, deletedAt: null } });
   if (!delivery) throw new NotFoundError('Delivery');
 
@@ -117,6 +117,7 @@ async function updateDeliverySchedule(id, { startDate, dueDate, notifyWhatsapp, 
   if (notifyWhatsapp !== undefined) data.notifyWhatsapp = notifyWhatsapp;
   if (notifyEmail !== undefined) data.notifyEmail = notifyEmail;
   if (reminderOffsets !== undefined) data.reminderOffsets = reminderOffsets ? JSON.stringify(reminderOffsets) : null;
+  if (reminderTime !== undefined) data.reminderTime = reminderTime || null;
 
   const updated = await prisma.delivery.update({ where: { id }, data });
 
@@ -142,6 +143,37 @@ async function updateDeliverySchedule(id, { startDate, dueDate, notifyWhatsapp, 
       : await reminderService.stopReminders(id, 'delivery', null, userId);
   } catch (e) {
     require('../config/logger').warn({ err: e.message, deliveryId: id }, 'Reminder regeneration after schedule update failed');
+  }
+
+  // One-time exact reminder at a specific date+time (per enabled channel).
+  // Runs AFTER restartReminders so stop+generate doesn't wipe it.
+  if (customReminderAt) {
+    const probe = new Date(customReminderAt);
+    if (isNaN(probe.getTime())) throw new ValidationError('Invalid custom reminder date/time');
+  }
+  if (customReminderAt !== undefined) {
+    try {
+      const runAt = customReminderAt ? new Date(customReminderAt) : null;
+      const channels = [];
+      if (updated.notifyWhatsapp) channels.push('whatsapp');
+      if (updated.notifyEmail) channels.push('email');
+      for (const ch of ['whatsapp', 'email']) {
+        const dedupeKey = `d${id}:custom:c${ch}`;
+        if (runAt && channels.includes(ch)) {
+          await prisma.scheduledReminder.upsert({
+            where: { dedupeKey },
+            update: { runAt, status: 'pending' },
+            create: { deliveryId: id, channel: ch, runAt, status: 'pending', dedupeKey },
+          });
+        } else {
+          await prisma.scheduledReminder.deleteMany({
+            where: { dedupeKey, status: { in: ['pending', 'snoozed'] } },
+          });
+        }
+      }
+    } catch (e) {
+      require('../config/logger').warn({ err: e.message, deliveryId: id }, 'Custom reminder update failed');
+    }
   }
 
   return { ...updated, reminders };

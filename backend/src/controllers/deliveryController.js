@@ -11,6 +11,8 @@ const scheduleSchema = z.object({
   notifyWhatsapp: z.boolean().optional(),
   notifyEmail: z.boolean().optional(),
   reminderOffsets: z.array(z.number().int().positive()).max(20).optional().nullable(),
+  reminderTime: z.string().regex(/^\d{2}:\d{2}$/, 'Use HH:MM (24h)').optional().nullable(),
+  customReminderAt: z.string().max(40).optional().nullable(),
 }).refine((d) => {
   if (d.startDate && d.dueDate) return new Date(d.dueDate) >= new Date(d.startDate);
   return true;
