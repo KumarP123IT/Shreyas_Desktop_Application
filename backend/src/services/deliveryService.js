@@ -85,18 +85,12 @@ async function getDelivery(id) {
     }
   }
 
-  // Live global stock per part — this is the "pending stock": it already
-  // reflects invoice deductions because applyInvoice subtracts from Stock.quantity
-  const partNumbers = delivery.items.map((i) => i.partNumber);
-  const stocks = partNumbers.length
-    ? await prisma.stock.findMany({ where: { partNumber: { in: partNumbers } } })
-    : [];
-  const stockMap = new Map(stocks.map((s) => [s.partNumber, s]));
-
   for (const item of delivery.items) {
     const invoiced = invoicedMap.get(item.partNumber) ?? 0;
     item.invoicedQty = invoiced;
-    item.pendingStock = stockMap.get(item.partNumber)?.quantity ?? null;
+    // Pending = forecast qty not yet covered by applied invoices —
+    // i.e. how much still needs to be delivered to the customer
+    item.pendingQty = Math.max(0, (item.totalQty ?? 0) - invoiced);
     item.deliveryStatus =
       (item.totalQty ?? 0) > 0 && invoiced >= item.totalQty ? 'delivered'
       : invoiced > 0 ? 'partial'

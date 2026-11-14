@@ -45,8 +45,7 @@ export default function MaterialSheet({ delivery }) {
       totalQty: item.totalQty,
       actualStock: item.actualStock,
       invoicedQty: item.invoicedQty ?? 0,
-      pendingStock: item.pendingStock ?? null,
-      deliveryStatus: item.deliveryStatus ?? 'not_recorded',
+      pendingQty: item.pendingQty ?? null,
       mslStatus: item.mslStatus,
       snapshotMinQty: item.snapshotMinQty,
       snapshotMaxQty: item.snapshotMaxQty,
@@ -72,7 +71,7 @@ export default function MaterialSheet({ delivery }) {
     const items = [];
     api.forEachNode((node) => {
       if (!node.data) return;
-      const { partNumber, partName, totalQty, actualStock, invoicedQty, pendingStock, deliveryStatus, mslStatus, snapshotMinQty, snapshotMaxQty, id, ...extra } = node.data;
+      const { partNumber, partName, totalQty, actualStock, invoicedQty, pendingQty, mslStatus, snapshotMinQty, snapshotMaxQty, id, ...extra } = node.data;
       items.push({
         partNumber: partNumber || '',
         partName: partName || '',
@@ -136,29 +135,12 @@ export default function MaterialSheet({ delivery }) {
         },
       },
       {
-        field: 'pendingStock',
-        headerName: 'Pending Stock',
-        width: 120,
+        field: 'pendingQty',
+        headerName: 'Pending',
+        width: 100,
         editable: false,
         type: 'numericColumn',
-        cellRenderer: (params) => params.value != null
-          ? <span className="font-mono text-xs" style={{ color: params.value > 0 ? '#2B7CB8' : '#8A9AAD' }}>{params.value.toLocaleString()}</span>
-          : <span className="text-xs text-text-secondary">—</span>,
-      },
-      {
-        field: 'deliveryStatus',
-        headerName: 'Delivered',
-        width: 130,
-        editable: false,
-        cellRenderer: (params) => {
-          const map = {
-            delivered:     { label: '✓ Delivered',   cls: 'text-success font-semibold' },
-            partial:       { label: '◐ Partial',      cls: 'text-warning font-semibold' },
-            not_recorded:  { label: '— Not recorded', cls: 'text-text-secondary' },
-          };
-          const s = map[params.value] || map.not_recorded;
-          return <span className={s.cls} style={{ fontSize: '12px' }}>{s.label}</span>;
-        },
+        cellStyle: (params) => params.value > 0 ? { color: '#E9730C', fontWeight: 600 } : { color: '#8A9AAD' },
       },
       {
         field: 'snapshotMinQty',
