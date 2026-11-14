@@ -365,7 +365,7 @@ function MslMonitorTab({ items = [], mslSummary }) {
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-background border-b border-border text-left">
-              {['Part Number','Part Name','Total Qty','Min','Max','Source','Status'].map((h) => (
+              {['Part Number','Part Name','Total Qty','Min','Max','Status'].map((h) => (
                 <th key={h} className={clsx('px-3 py-2.5 text-xs font-semibold text-text-secondary uppercase tracking-wide',
                   h === 'Total Qty' ? 'text-right' : h === 'Min' || h === 'Max' ? 'text-center' : '')}>{h}</th>
               ))}
@@ -384,12 +384,11 @@ function MslMonitorTab({ items = [], mslSummary }) {
                 <td className="px-3 py-2.5 text-right"><MslQtyBar item={item} /></td>
                 <td className="px-3 py-2.5 text-center font-mono text-xs text-text-secondary">{item.snapshotMinQty ?? '—'}</td>
                 <td className="px-3 py-2.5 text-center font-mono text-xs text-text-secondary">{item.snapshotMaxQty ?? '—'}</td>
-                <td className="px-3 py-2.5"><SourceBadge source={item.snapshotSource} /></td>
                 <td className="px-3 py-2.5"><MslStatusBadge status={item.mslStatus} /></td>
               </tr>
             ))}
             {displayed.length === 0 && (
-              <tr><td colSpan={7} className="px-3 py-10 text-center text-text-secondary text-sm">No items match the selected filter.</td></tr>
+              <tr><td colSpan={6} className="px-3 py-10 text-center text-text-secondary text-sm">No items match the selected filter.</td></tr>
             )}
           </tbody>
         </table>
@@ -430,17 +429,6 @@ function MslStatusBadge({ status }) {
       <Icon size={11} /> {m.label}
     </span>
   );
-}
-
-function SourceBadge({ source }) {
-  const MAP = {
-    part:     { cls: 'bg-blue-100 text-info',           label: 'Part' },
-    customer: { cls: 'bg-purple-100 text-purple-700',   label: 'Customer' },
-    global:   { cls: 'bg-gray-100 text-text-secondary', label: 'Global' },
-  };
-  const m = MAP[source];
-  if (!m) return <span className="text-text-secondary text-xs">—</span>;
-  return <span className={clsx('px-2 py-0.5 rounded-full text-xs font-semibold', m.cls)}>{m.label}</span>;
 }
 
 // ── ScheduleTab ───────────────────────────────────────────────────────────────
