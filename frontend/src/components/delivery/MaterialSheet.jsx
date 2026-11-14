@@ -45,6 +45,7 @@ export default function MaterialSheet({ delivery }) {
       totalQty: item.totalQty,
       actualStock: item.actualStock,
       invoicedQty: item.invoicedQty ?? 0,
+      deliveryStatus: item.deliveryStatus ?? 'not_recorded',
       mslStatus: item.mslStatus,
       snapshotMinQty: item.snapshotMinQty,
       snapshotMaxQty: item.snapshotMaxQty,
@@ -70,7 +71,7 @@ export default function MaterialSheet({ delivery }) {
     const items = [];
     api.forEachNode((node) => {
       if (!node.data) return;
-      const { partNumber, partName, totalQty, actualStock, invoicedQty, mslStatus, snapshotMinQty, snapshotMaxQty, id, ...extra } = node.data;
+      const { partNumber, partName, totalQty, actualStock, invoicedQty, pendingQty, deliveryStatus, mslStatus, snapshotMinQty, snapshotMaxQty, id, ...extra } = node.data;
       items.push({
         partNumber: partNumber || '',
         partName: partName || '',
@@ -134,11 +135,19 @@ export default function MaterialSheet({ delivery }) {
         },
       },
       {
-        field: 'actualStock',
-        headerName: 'Actual Stock',
-        width: 120,
-        editable: true,
-        type: 'numericColumn',
+        field: 'deliveryStatus',
+        headerName: 'Delivered',
+        width: 130,
+        editable: false,
+        cellRenderer: (params) => {
+          const map = {
+            delivered:     { label: '✓ Delivered',   cls: 'text-success font-semibold' },
+            partial:       { label: '◐ Partial',      cls: 'text-warning font-semibold' },
+            not_recorded:  { label: '— Not recorded', cls: 'text-text-secondary' },
+          };
+          const s = map[params.value] || map.not_recorded;
+          return <span className={s.cls} style={{ fontSize: '12px' }}>{s.label}</span>;
+        },
       },
       {
         field: 'snapshotMinQty',

@@ -85,7 +85,14 @@ async function getDelivery(id) {
     }
   }
   for (const item of delivery.items) {
-    item.invoicedQty = invoicedMap.get(item.partNumber) ?? 0;
+    const invoiced = invoicedMap.get(item.partNumber) ?? 0;
+    item.invoicedQty = invoiced;
+    // Pending = forecast qty not yet covered by applied invoices
+    item.pendingQty = Math.max(0, (item.totalQty ?? 0) - invoiced);
+    item.deliveryStatus =
+      (item.totalQty ?? 0) > 0 && invoiced >= item.totalQty ? 'delivered'
+      : invoiced > 0 ? 'partial'
+      : 'not_recorded';
   }
 
   return delivery;
