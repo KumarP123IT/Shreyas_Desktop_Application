@@ -16,7 +16,6 @@ import { stocksApi } from '@/api/stocks';
 import Dialog, { ConfirmDialog } from '@/components/ui/Dialog';
 import PageHeader from '@/components/ui/PageHeader';
 import SkeletonTable from '@/components/ui/SkeletonTable';
-import Pagination from '@/components/ui/Pagination';
 import { useToast } from '@/components/ui/Toast';
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
@@ -257,8 +256,8 @@ export default function StocksList() {
   const toast    = useToast();
   const qc       = useQueryClient();
 
-  const [page, setPage]           = useState(1);
   const [search, setSearch]       = useState('');
+  const [stockFilter, setStockFilter] = useState('all'); // all | instock | outofstock | low | high
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [addOpen, setAddOpen]     = useState(false);
   const [editTarget, setEditTarget]   = useState(null);
@@ -270,12 +269,13 @@ export default function StocksList() {
   const handleSearch = (val) => {
     setSearch(val);
     clearTimeout(handleSearch._t);
-    handleSearch._t = setTimeout(() => { setDebouncedSearch(val); setPage(1); }, 350);
+    handleSearch._t = setTimeout(() => setDebouncedSearch(val), 350);
   };
 
+  // Single page — fetch everything (search still runs server-side)
   const { data, isLoading } = useQuery({
-    queryKey: ['stocks', { page, search: debouncedSearch }],
-    queryFn: () => stocksApi.list({ page, pageSize: 50, search: debouncedSearch }),
+    queryKey: ['stocks', { search: debouncedSearch }],
+    queryFn: () => stocksApi.list({ page: 1, pageSize: 10000, search: debouncedSearch }),
     select: (r) => r.data,
   });
 
@@ -313,9 +313,27 @@ export default function StocksList() {
   const stocks = data?.data ?? [];
   const meta   = data?.meta ?? {};
 
-  // Summary stats
+  // Summary stats + client-side quantity/stock filters
+  const LOW_STOCK_MAX = 50;
   const outOfStock = stocks.filter((s) => s.quantity === 0).length;
-  const lowStock   = stocks.filter((s) => s.quantity > 0 && s.quantity < 50).length;
+  const lowStock   = stocks.filter((s) => s.quantity > 0 && s.quantity < LOW_STOCK_MAX).length;
+
+  const FILTERS = [
+    { key: 'all',        label: 'All Parts' },
+    { key: 'instock',    label: 'In Stock' },
+    { key: 'outofstock', label: 'Out of Stock' },
+    { key: 'low',        label: `Low (<${LOW_STOCK_MAX})` },
+    { key: 'high',       label: `High (≥${LOW_STOCK_MAX})` },
+  ];
+  const filtered = stocks.filter((s) => {
+    switch (stockFilter) {
+      case 'instock':    return s.quantity > 0;
+      case 'outofstock': return s.quantity === 0;
+      case 'low':        return s.quantity > 0 && s.quantity < LOW_STOCK_MAX;
+      case 'high':       return s.quantity >= LOW_STOCK_MAX;
+      default:           return true;
+    }
+  });
 
   return (
     <div className="space-y-4 max-w-7xl mx-auto">
@@ -329,18 +347,25 @@ export default function StocksList() {
         }
       />
 
-      {/* KPI bar */}
+      {/* KPI bar — click a card to filter the table */}
       {!isLoading && stocks.length > 0 && (
         <div className="grid grid-cols-3 gap-3">
           {[
-            { label: 'Total Parts',    value: meta.total ?? 0,  color: 'text-primary' },
-            { label: 'Low Stock',      value: lowStock,          color: 'text-warning' },
-            { label: 'Out of Stock',   value: outOfStock,        color: 'text-error'   },
-          ].map(({ label, value, color }) => (
-            <div key={label} className="fiori-card p-4 flex flex-col">
+            { label: 'Total Parts',    value: meta.total ?? 0,  color: 'text-primary', filter: 'all' },
+            { label: 'Low Stock',      value: lowStock,          color: 'text-warning', filter: 'low' },
+            { label: 'Out of Stock',   value: outOfStock,        color: 'text-error',   filter: 'outofstock' },
+          ].map(({ label, value, color, filter }) => (
+            <button
+              key={label}
+              onClick={() => setStockFilter(filter)}
+              className={clsx(
+                'fiori-card p-4 flex flex-col text-left transition-all',
+                stockFilter === filter ? 'ring-2 ring-primary' : 'hover:shadow-md'
+              )}
+            >
               <span className="text-xs font-semibold text-text-secondary uppercase tracking-wide">{label}</span>
               <span className={clsx('text-2xl font-bold mt-1', color)}>{value}</span>
-            </div>
+            </button>
           ))}
         </div>
       )}
@@ -362,6 +387,16 @@ export default function StocksList() {
             Clear
           </button>
         )}
+        <select
+          value={stockFilter}
+          onChange={(e) => setStockFilter(e.target.value)}
+          className="fiori-input !w-auto !py-1.5 text-sm"
+          aria-label="Filter by stock status"
+        >
+          {FILTERS.map((f) => (
+            <option key={f.key} value={f.key}>{f.label}</option>
+          ))}
+        </select>
       </div>
 
       {/* Table */}
@@ -370,6 +405,12 @@ export default function StocksList() {
           <div className="p-4"><SkeletonTable rows={6} cols={5} /></div>
         ) : stocks.length === 0 ? (
           <EmptyState onAdd={() => setAddOpen(true)} hasSearch={!!debouncedSearch} />
+        ) : filtered.length === 0 ? (
+          <div className="py-12 text-center">
+            <p className="font-semibold text-text">No parts match this filter</p>
+            <p className="text-sm text-text-secondary mt-1">{filtered.length === 0 && stocks.length > 0 ? 'Try a different filter or search' : ''}</p>
+            <button className="fiori-btn-ghost mt-3 text-xs" onClick={() => setStockFilter('all')}>Show all parts</button>
+          </div>
         ) : (
           <>
             <div className="overflow-x-auto">
@@ -379,13 +420,14 @@ export default function StocksList() {
                     <th className="px-4 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wide">Part Number</th>
                     <th className="px-4 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wide">Part Name</th>
                     <th className="px-4 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wide text-right">Quantity</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wide">Unit</th>
                     <th className="px-4 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wide">Status</th>
                     <th className="px-4 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wide">Notes</th>
                     <th className="px-4 py-3 w-28"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {stocks.map((s) => (
+                  {filtered.map((s) => (
                     <tr
                       key={s.id}
                       className="border-b border-border hover:bg-background/60 cursor-pointer"
@@ -416,10 +458,10 @@ export default function StocksList() {
                         ) : (
                           <span className="cursor-text hover:text-primary transition-colors">
                             {s.quantity.toLocaleString()}
-                            {s.unit && <span className="ml-1 text-xs font-normal text-text-secondary">{s.unit}</span>}
                           </span>
                         )}
                       </td>
+                      <td className="px-4 py-3 text-xs text-text-secondary">{s.unit || '—'}</td>
                       <td className="px-4 py-3"><StockBadge qty={s.quantity} /></td>
                       <td className="px-4 py-3 text-xs text-text-secondary max-w-xs truncate">{s.notes || '—'}</td>
                       <td className="px-4 py-3">
@@ -456,15 +498,6 @@ export default function StocksList() {
               </table>
             </div>
 
-            {meta.totalPages > 1 && (
-              <div className="p-4 border-t border-border">
-                <Pagination
-                  page={page}
-                  totalPages={meta.totalPages}
-                  onChange={setPage}
-                />
-              </div>
-            )}
           </>
         )}
       </div>

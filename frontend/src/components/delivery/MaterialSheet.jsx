@@ -44,6 +44,7 @@ export default function MaterialSheet({ delivery }) {
       partName: item.partName,
       totalQty: item.totalQty,
       actualStock: item.actualStock,
+      invoicedQty: item.invoicedQty ?? 0,
       mslStatus: item.mslStatus,
       snapshotMinQty: item.snapshotMinQty,
       snapshotMaxQty: item.snapshotMaxQty,
@@ -69,7 +70,7 @@ export default function MaterialSheet({ delivery }) {
     const items = [];
     api.forEachNode((node) => {
       if (!node.data) return;
-      const { partNumber, partName, totalQty, actualStock, mslStatus, snapshotMinQty, snapshotMaxQty, id, ...extra } = node.data;
+      const { partNumber, partName, totalQty, actualStock, invoicedQty, mslStatus, snapshotMinQty, snapshotMaxQty, id, ...extra } = node.data;
       items.push({
         partNumber: partNumber || '',
         partName: partName || '',
@@ -152,6 +153,15 @@ export default function MaterialSheet({ delivery }) {
         width: 80,
         editable: false,
         cellStyle: { color: '#556B82' },
+      },
+      {
+        field: 'invoicedQty',
+        headerName: 'Invoiced',
+        width: 110,
+        editable: false,
+        type: 'numericColumn',
+        cellStyle: (params) => params.value > 0 ? { color: '#188918', fontWeight: 600 } : { color: '#8A9AAD' },
+        cellRenderer: (params) => params.value > 0 ? `${params.value} ✓` : '—',
       },
       {
         field: 'mslStatus',

@@ -237,6 +237,7 @@ async function enqueueReminder(reminder) {
     // Build digest of all breach items
     const breaches = delivery.items
       .filter((i) => i.mslStatus !== 'NORMAL' && i.mslStatus !== 'NOT_CONFIGURED')
+      .sort((a, b) => (a.mslStatus === 'BELOW_MIN' ? 0 : 1) - (b.mslStatus === 'BELOW_MIN' ? 0 : 1))
       .slice(0, 5);
 
     if (breaches.length > 0) {

@@ -158,8 +158,13 @@ async function recordForecastUpload(rows, forecastId, userId) {
       const forecasted = parseInt(row.totalQty, 10) || 0;
 
       if (existingMap.has(pn)) {
-        // Log the forecast event (don't auto-change quantity)
         const stock = existingMap.get(pn);
+        // Keep the part name in sync — forecast uploads carry the fuller name
+        const newName = (row.partName || '').trim();
+        if (newName && newName !== stock.partName) {
+          await prisma.stock.update({ where: { id: stock.id }, data: { partName: newName } });
+        }
+        // Log the forecast event (don't auto-change quantity)
         await prisma.stockTransaction.create({
           data: {
             stockId: stock.id,

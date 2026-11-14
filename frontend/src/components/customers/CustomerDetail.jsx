@@ -586,6 +586,20 @@ export function InvoiceTab({ customerId }) {
           qty:        parseInt(r.qty, 10) || 0,
         }))
       );
+      // Refresh rows — stock matches/quantities are re-resolved server-side,
+      // so the shortage check below uses fresh data
+      const detail = await invoicesApi.getOne(customerId, preview.invoice.id);
+      const fresh  = toEditableRows(detail.data.data);
+      const short = fresh.some((r) => {
+        const q = parseInt(r.qty, 10) || 0;
+        return r.stockFound && r.stockQty != null && q > r.stockQty;
+      });
+      if (short) {
+        setPreview((p) => ({ ...p, rows: fresh }));
+        toast.error('Some quantities exceed current stock — update stock on the Stocks page first');
+        setSavingItems(false);
+        return;
+      }
       applyMutation.mutate(preview.invoice.id);
     } catch (e) {
       toast.error(e.response?.data?.error?.message || 'Failed to save edits');
@@ -619,6 +633,26 @@ export function InvoiceTab({ customerId }) {
           </button>
         </div>
 
+        {/* Insufficient-stock warning — block apply until stock is updated */}
+        {(() => {
+          const shortages = rows.filter((r) => {
+            const q = parseInt(r.qty, 10) || 0;
+            return r.stockFound && r.stockQty != null && q > r.stockQty;
+          });
+          if (shortages.length === 0) return null;
+          return (
+            <div className="p-3 rounded-lg bg-red-50 border border-red-200">
+              <p className="text-xs font-semibold text-red-800 mb-1 flex items-center gap-1">
+                <AlertTriangle size={12} /> {shortages.length} part(s) exceed current stock
+              </p>
+              <p className="text-xs text-red-700">
+                {shortages.map((r) => `${r.partNumber}: needs ${r.qty}, has ${r.stockQty}`).join(' · ')}
+                <br />Please update the stock quantity on the Stocks page first, then apply this invoice.
+              </p>
+            </div>
+          );
+        })()}
+
         {warnings?.length > 0 && (
           <div className="p-3 rounded-lg bg-yellow-50 border border-yellow-200">
             <p className="text-xs font-semibold text-yellow-800 mb-1 flex items-center gap-1">
@@ -644,6 +678,7 @@ export function InvoiceTab({ customerId }) {
                   <th className="px-3 py-2 text-xs font-semibold text-text-secondary uppercase">Part Number</th>
                   <th className="px-3 py-2 text-xs font-semibold text-text-secondary uppercase">Part Name</th>
                   <th className="px-3 py-2 text-xs font-semibold text-text-secondary uppercase text-right">In Stock</th>
+                  <th className="px-3 py-2 text-xs font-semibold text-text-secondary uppercase">Unit</th>
                   <th className="px-3 py-2 text-xs font-semibold text-text-secondary uppercase text-right">Qty to Deduct</th>
                   <th className="px-3 py-2 text-xs font-semibold text-text-secondary uppercase text-right">Remaining</th>
                   <th className="px-3 py-2 text-xs font-semibold text-text-secondary uppercase">Match</th>
@@ -674,8 +709,9 @@ export function InvoiceTab({ customerId }) {
                         />
                       </td>
                       <td className="px-3 py-2 text-right font-mono text-xs text-text-secondary">
-                        {inStock != null ? `${inStock}${r.stockUnit ? ' ' + r.stockUnit : ''}` : '—'}
+                        {inStock != null ? inStock : '—'}
                       </td>
+                      <td className="px-3 py-2 text-xs text-text-secondary">{r.stockUnit || '—'}</td>
                       <td className="px-3 py-2 text-right">
                         <input
                           type="number"
@@ -710,7 +746,8 @@ export function InvoiceTab({ customerId }) {
 
         <p className="text-[11px] text-text-secondary">
           You can fix part numbers and quantities directly in the table — edits are saved when you apply.
-          Stock is deducted down to zero at most; parts not in stock are skipped.
+          Apply is blocked while any quantity exceeds current stock — update quantities on the Stocks page first.
+          Parts not in stock are skipped.
         </p>
 
         <div className="flex justify-end gap-2 pt-1">
@@ -719,7 +756,11 @@ export function InvoiceTab({ customerId }) {
           </button>
           <button
             className="fiori-btn-primary flex items-center gap-1.5"
-            disabled={applyMutation.isPending || savingItems || rows.length === 0}
+            disabled={applyMutation.isPending || savingItems || rows.length === 0 ||
+              rows.some((r) => {
+                const q = parseInt(r.qty, 10) || 0;
+                return r.stockFound && r.stockQty != null && q > r.stockQty;
+              })}
             onClick={handleApply}
           >
             <TrendingDown size={14} />

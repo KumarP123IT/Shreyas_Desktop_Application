@@ -15,6 +15,7 @@ import clsx from 'clsx';
 
 import { forecastsApi } from '@/api/forecasts';
 import { customersApi } from '@/api/customers';
+import { stocksApi } from '@/api/stocks';
 import { useToast } from '@/components/ui/Toast';
 import SkeletonTable from '@/components/ui/SkeletonTable';
 
@@ -42,6 +43,15 @@ export default function UploadWizard({ onClose, preselectedCustomerId }) {
     queryFn: () => customersApi.list({ pageSize: 200 }),
     select: (r) => r.data.data,
   });
+
+  // Current stock per part — shown as "In Stock" / "Remaining" in review
+  const { data: stocksData } = useQuery({
+    queryKey: ['stocks', { pageSize: 500 }],
+    queryFn: () => stocksApi.list({ pageSize: 500 }),
+    select: (r) => r.data.data,
+    enabled: step === 1,
+  });
+  const stockMap = new Map((stocksData || []).map((s) => [s.partNumber, s]));
 
   const uploadMutation = useMutation({
     mutationFn: (formData) => forecastsApi.upload(formData),
@@ -318,6 +328,8 @@ export default function UploadWizard({ onClose, preselectedCustomerId }) {
                     <th className="px-2 py-2 text-left font-semibold text-text-secondary">Part Number</th>
                     <th className="px-2 py-2 text-left font-semibold text-text-secondary">Part Name</th>
                     <th className="px-2 py-2 text-left font-semibold text-text-secondary w-20">Total Qty</th>
+                    <th className="px-2 py-2 text-right font-semibold text-text-secondary w-20">In Stock</th>
+                    <th className="px-2 py-2 text-right font-semibold text-text-secondary w-20">Remaining</th>
                     <th className="px-2 py-2 w-6"></th>
                   </tr>
                 </thead>
@@ -358,6 +370,24 @@ export default function UploadWizard({ onClose, preselectedCustomerId }) {
                           }}
                           className="w-16 bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none text-right font-mono text-xs py-0.5"
                         />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        {(() => {
+                          const st = stockMap.get(row.partNumber);
+                          return st ? st.quantity : <span className="text-text-secondary">—</span>;
+                        })()}
+                      </td>
+                      <td className="px-2 py-1.5 text-right">
+                        {(() => {
+                          const st = stockMap.get(row.partNumber);
+                          if (!st) return <span className="text-text-secondary">—</span>;
+                          const rem = (st.quantity || 0) - (row.totalQty || 0);
+                          return (
+                            <span className={clsx('font-mono', rem < 0 ? 'text-error font-semibold' : 'text-text')}>
+                              {rem}
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="px-1 py-1.5 text-center">
                         <button

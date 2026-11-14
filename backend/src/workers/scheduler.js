@@ -217,22 +217,34 @@ async function checkMslBreaches() {
       continue;
     }
 
-    const breachLines = delivery.items.slice(0, 5).map((item) =>
+    // Below-minimum parts first, then above-maximum — grouped in the message
+    const belowItems = delivery.items.filter((i) => i.mslStatus === 'BELOW_MIN');
+    const aboveItems = delivery.items.filter((i) => i.mslStatus === 'ABOVE_MAX');
+
+    const fmt = (item) =>
       `• ${item.partName} (${item.partNumber}): ${item.totalQty} [${
         item.mslStatus === 'BELOW_MIN'
           ? `below min ${item.snapshotMinQty}`
           : `above max ${item.snapshotMaxQty}`
-      }]`
-    ).join('\n');
-    const extra = delivery.items.length > 5
-      ? `\n(+${delivery.items.length - 5} more – check app)` : '';
+      }]`;
+
+    const sections = [];
+    if (belowItems.length) {
+      sections.push(`Below minimum:\n${belowItems.slice(0, 5).map(fmt).join('\n')}` +
+        (belowItems.length > 5 ? `\n(+${belowItems.length - 5} more)` : ''));
+    }
+    if (aboveItems.length) {
+      sections.push(`Above maximum:\n${aboveItems.slice(0, 5).map(fmt).join('\n')}` +
+        (aboveItems.length > 5 ? `\n(+${aboveItems.length - 5} more)` : ''));
+    }
+    const breachLines = sections.join('\n\n');
 
     const customerName = delivery.customer?.name ?? 'Unknown customer';
     const appName = settingsMap.app_name || 'Smart MSL Monitor';
 
-    const waBody = `⚠️ MSL Alert – ${customerName}\nMonth: ${delivery.forecastMonth}\n\n${breachLines}${extra}\n\nOpen ${appName} to review.`;
+    const waBody = `⚠️ MSL Alert – ${customerName}\nMonth: ${delivery.forecastMonth}\n\n${breachLines}\n\nOpen ${appName} to review.`;
     const emailSubject = `MSL Alert – ${customerName} (${delivery.forecastMonth})`;
-    const emailBody = `<p>⚠️ <strong>MSL Breach Detected</strong></p><p>Customer: ${customerName}<br/>Month: ${delivery.forecastMonth}</p><pre>${breachLines}${extra}</pre><p>Open ${appName} to review.</p>`;
+    const emailBody = `<p>⚠️ <strong>MSL Breach Detected</strong></p><p>Customer: ${customerName}<br/>Month: ${delivery.forecastMonth}</p><pre>${breachLines}</pre><p>Open ${appName} to review.</p>`;
 
     // Create the log row FIRST (fingerprinted subject for dedup)
     const logRow = await prisma.notificationLog.create({

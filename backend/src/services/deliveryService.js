@@ -70,6 +70,24 @@ async function getDelivery(id) {
     },
   });
   if (!delivery) throw new NotFoundError('Delivery');
+
+  // Attach invoiced (delivered) quantities per part — sums applied invoices
+  // for this customer, matched by part number, so the material sheet can show
+  // which forecast lines have already been dispatched.
+  const invoices = await prisma.invoice.findMany({
+    where: { customerId: delivery.customerId, status: 'applied', deletedAt: null },
+    include: { items: true },
+  });
+  const invoicedMap = new Map();
+  for (const inv of invoices) {
+    for (const it of inv.items) {
+      invoicedMap.set(it.partNumber, (invoicedMap.get(it.partNumber) || 0) + it.qty);
+    }
+  }
+  for (const item of delivery.items) {
+    item.invoicedQty = invoicedMap.get(item.partNumber) ?? 0;
+  }
+
   return delivery;
 }
 

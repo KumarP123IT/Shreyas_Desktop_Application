@@ -149,3 +149,34 @@ describe('KTTM row parsing (simulated)', () => {
     expect(r.totalQty).toBeNull();
   });
 });
+
+// ── Real PDF regression: positioned extraction keeps full part names ──────────
+// The text layer collapses KTTM columns ("…L=12"+"6" → "L=126"), which used to
+// truncate names and misread qty. Positioned parsing must recover both.
+import { parsePdf } from '../src/parsers/pdfParser.js';
+import { fileURLToPath } from 'node:url';
+
+describe('KTTM forecast PDF (real file, positioned parsing)', () => {
+  const samplePath = fileURLToPath(new URL('../samples/KTTM_FEB-2027_forecast.pdf', import.meta.url));
+
+  it('extracts all 54 rows with full part names and correct qtys', async () => {
+    const result = await parsePdf(samplePath);
+    expect(result.rows.length).toBe(54);
+
+    const byPn = Object.fromEntries(result.rows.map((r) => [r.partNumber, r]));
+
+    // Names ending in size specs must NOT lose their digits to the qty column
+    expect(byPn['71120-06024-00'].partName).toBe('BOLT,WING M6 L=12');
+    expect(byPn['71120-06024-00'].totalQty).toBe(6);
+    expect(byPn['71212-50031-00'].partName).toBe('SCREW,COUNTERSUNK M5 L16');
+    expect(byPn['71212-50031-00'].totalQty).toBe(42);
+    expect(byPn['71307-03001-00'].partName).toBe('NUT,STUD M3X25');
+    expect(byPn['71307-03001-00'].totalQty).toBe(180);
+
+    // Plain rows still correct
+    expect(byPn['71109-06001-00'].partName).toBe('SCREW,STUD');
+    expect(byPn['71109-06001-00'].totalQty).toBe(330);
+    expect(byPn['94220-00800'].partName).toBe('NUT,WELD(M8*1.25)');
+    expect(byPn['94220-00800'].totalQty).toBe(31655);
+  });
+});

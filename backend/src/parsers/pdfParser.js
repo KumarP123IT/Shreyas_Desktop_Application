@@ -48,6 +48,90 @@ async function extractText(filePath) {
 }
 
 /**
+ * Extract text items WITH x/y coordinates using pdf-parse's pagerender hook.
+ * Needed for columnar PDFs whose text layer collapses columns together
+ * (e.g. KTTM forecasts: "S0965NAME71109-06001-00SCREW,STUD330").
+ * Returns pages → rows → cells: [[{str,x,y}...row items...], ...] per page.
+ */
+async function extractPositionedRows(filePath) {
+  const pdfParse = require('pdf-parse');
+  const buf = fs.readFileSync(filePath);
+  const pages = [];
+  await pdfParse(buf, {
+    pagerender: (pageData) => pageData.getTextContent().then((tc) => {
+      // Group items into visual rows by y (tolerance 2px), ordered top→bottom
+      const items = tc.items
+        .map((it) => ({ str: it.str, x: it.transform[4], y: it.transform[5] }))
+        .filter((it) => it.str && it.str.trim());
+      items.sort((a, b) => b.y - a.y || a.x - b.x);
+      const rows = [];
+      for (const it of items) {
+        const last = rows[rows.length - 1];
+        if (last && Math.abs(last.y - it.y) <= 2) last.items.push(it);
+        else rows.push({ y: it.y, items: [it] });
+      }
+      pages.push(rows.map((r) => r.items.sort((a, b) => a.x - b.x).map((i) => i.str)));
+      return '';
+    }),
+  });
+  return pages;
+}
+
+/**
+ * KTTM forecast via positioned text — each visual row already has columns
+ * separated, so part names keep their full text (incl. size specs like
+ * "M3X25" or "L=12") and qty is the last cell, never confused with name digits.
+ */
+function tryKttmPositionedRows(pages) {
+  const PN_RE = /\d{4,6}-\d{4,6}(?:-\d{2})?/;
+  const rows = [];
+  const warnings = [];
+  const needsReview = [];
+  let sawHeader = false;
+
+  for (const pageRows of pages) {
+    for (const cells of pageRows) {
+      const joined = cells.join(' ');
+      if (/PART\s*NUMBER/i.test(joined) && /PART\s*NAME/i.test(joined)) { sawHeader = true; continue; }
+
+      const pnIdx = cells.findIndex((c) => PN_RE.test(c));
+      if (pnIdx === -1) continue;
+
+      const partNumber = normalisePartNumber(cells[pnIdx].match(PN_RE)[0]);
+      const partName   = cells.slice(pnIdx + 1, -1).join(' ').trim() || 'UNKNOWN';
+      const totalQty   = parseQty(cells[cells.length - 1]);
+
+      if (totalQty == null) {
+        needsReview.push({ raw: joined, reason: 'No numeric total found' });
+        continue;
+      }
+      rows.push({ partNumber, partName, totalQty });
+    }
+  }
+
+  if (!sawHeader || rows.length === 0) return null;
+
+  // Duplicate part-number check (same as text adapter)
+  const seen = new Map();
+  rows.forEach((r, idx) => {
+    if (seen.has(r.partNumber)) {
+      warnings.push({
+        partNumber: r.partNumber,
+        reason: `Duplicate part number at row ${idx + 1} (first seen at row ${seen.get(r.partNumber) + 1})`,
+      });
+    }
+    seen.set(r.partNumber, idx);
+  });
+
+  return {
+    rows,
+    warnings,
+    needsReview,
+    confidence: rows.length > 0 ? Math.min(1, rows.length / Math.max(1, rows.length + needsReview.length)) : 0,
+  };
+}
+
+/**
  * Main PDF parse function.
  * Returns { rows, meta, warnings, needsReview, confidence, isOcr }
  */
@@ -57,6 +141,24 @@ async function parsePdf(filePath) {
   // Try KTTM adapter first
   const kttmResult = tryKttmAdapter(text);
   if (kttmResult && kttmResult.rows.length > 0) {
+    // Text-layer parsing collapses columns on some KTTM PDFs, truncating part
+    // names and misreading qty. Re-parse with positioned text when possible.
+    if (!isOcr) {
+      try {
+        const pages = await extractPositionedRows(filePath);
+        const positioned = tryKttmPositionedRows(pages);
+        if (positioned && positioned.rows.length > 0) {
+          return {
+            rows: positioned.rows,
+            meta: kttmResult.meta,
+            warnings: positioned.warnings,
+            needsReview: positioned.needsReview,
+            confidence: positioned.confidence,
+            isOcr,
+          };
+        }
+      } catch (_) { /* fall back to text-layer result */ }
+    }
     return { ...kttmResult, isOcr };
   }
 
