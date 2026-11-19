@@ -190,22 +190,41 @@ async function cancelInvoice(invoiceId, userId) {
  */
 async function attachStockInfo(invoice) {
   const partNumbers = [...new Set(invoice.items.map((i) => i.partNumber).filter(Boolean))];
-  const stocks = partNumbers.length
-    ? await prisma.stock.findMany({
-        where: { partNumber: { in: partNumbers }, deletedAt: null },
-        select: { id: true, partNumber: true, quantity: true, unit: true },
-      })
-    : [];
+  const [stocks, forecastItems] = await Promise.all([
+    partNumbers.length
+      ? prisma.stock.findMany({
+          where: { partNumber: { in: partNumbers }, deletedAt: null },
+          select: { id: true, partNumber: true, quantity: true, unit: true },
+        })
+      : [],
+    // Forecast qty per part: the invoice's linked delivery, or — for
+    // unlinked/customer-level invoices — summed across the customer's
+    // non-deleted deliveries.
+    invoice.deliveryId
+      ? prisma.deliveryItem.findMany({
+          where: { deliveryId: invoice.deliveryId, deletedAt: null, partNumber: { in: partNumbers } },
+          select: { partNumber: true, totalQty: true },
+        })
+      : prisma.deliveryItem.findMany({
+          where: { deletedAt: null, partNumber: { in: partNumbers }, delivery: { customerId: invoice.customerId, deletedAt: null } },
+          select: { partNumber: true, totalQty: true },
+        }),
+  ]);
   const byPn = new Map(stocks.map((s) => [s.partNumber, s]));
+  const forecastByPn = new Map();
+  for (const fi of forecastItems) {
+    forecastByPn.set(fi.partNumber, (forecastByPn.get(fi.partNumber) || 0) + (fi.totalQty || 0));
+  }
   return {
     ...invoice,
     items: invoice.items.map((item) => {
       const stock = byPn.get(item.partNumber) || null;
       return {
         ...item,
-        stockQty:  stock ? stock.quantity : null,
-        stockUnit: stock ? stock.unit : null,
-        stockFound: !!stock,
+        stockQty:     stock ? stock.quantity : null,
+        stockUnit:    stock ? stock.unit : null,
+        stockFound:   !!stock,
+        forecastQty:  forecastByPn.get(item.partNumber) ?? null,
       };
     }),
   };

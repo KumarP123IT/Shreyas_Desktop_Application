@@ -495,6 +495,7 @@ function toEditableRows(invoice) {
     stockQty:   item.stockQty ?? null,
     stockUnit:  item.stockUnit ?? null,
     stockFound: !!item.stockFound,
+    forecastQty: item.forecastQty ?? null,
   }));
 }
 
@@ -678,6 +679,7 @@ export function InvoiceTab({ customerId, deliveryId }) {
                 <tr className="bg-background border-b border-border text-left">
                   <th className="px-3 py-2 text-xs font-semibold text-text-secondary uppercase">Part Number</th>
                   <th className="px-3 py-2 text-xs font-semibold text-text-secondary uppercase">Part Name</th>
+                  <th className="px-3 py-2 text-xs font-semibold text-text-secondary uppercase text-right" title="Quantity from the forecast PDF">Forecast Qty</th>
                   <th className="px-3 py-2 text-xs font-semibold text-text-secondary uppercase text-right">In Stock</th>
                   <th className="px-3 py-2 text-xs font-semibold text-text-secondary uppercase">Unit</th>
                   <th className="px-3 py-2 text-xs font-semibold text-text-secondary uppercase text-right">Qty to Deduct</th>
@@ -708,6 +710,9 @@ export function InvoiceTab({ customerId, deliveryId }) {
                           onChange={(e) => updateRow(i, 'partName', e.target.value)}
                           aria-label="Part name"
                         />
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-xs text-text-secondary" title="Forecast quantity">
+                        {r.forecastQty != null ? r.forecastQty : '—'}
                       </td>
                       <td className="px-3 py-2 text-right font-mono text-xs text-text-secondary">
                         {inStock != null ? inStock : '—'}
