@@ -109,46 +109,53 @@ export default function DashboardPage() {
         {[
           {
             label: 'Active Deliveries', value: kpis?.activeDeliveries, icon: Truck,
-            accent: 'border-t-primary', text: 'text-primary dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-500/15',
+            chip: 'from-blue-500 to-indigo-600', glow: 'bg-blue-500/25',
+            text: 'text-blue-600 dark:text-blue-400',
             onClick: () => navigate('/deliveries'),
           },
           {
             label: 'Below MIN', value: kpis?.belowMin, icon: TrendingDown,
-            accent: kpis?.belowMin > 0 ? 'border-t-error' : 'border-t-border',
-            text: kpis?.belowMin > 0 ? 'text-error dark:text-red-400' : 'text-text-secondary',
-            bg: kpis?.belowMin > 0 ? 'bg-red-50 dark:bg-red-500/15' : 'bg-gray-50 dark:bg-white/5',
-            pulse: kpis?.belowMin > 0,
+            alert: (kpis?.belowMin ?? 0) > 0,
+            chip: (kpis?.belowMin ?? 0) > 0 ? 'from-rose-500 to-red-600' : 'from-slate-400 to-slate-500',
+            glow: 'bg-rose-500/25',
+            text: (kpis?.belowMin ?? 0) > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-text-secondary',
           },
           {
             label: 'Above MAX', value: kpis?.aboveMax, icon: TrendingUp,
-            accent: kpis?.aboveMax > 0 ? 'border-t-warning' : 'border-t-border',
-            text: kpis?.aboveMax > 0 ? 'text-warning dark:text-orange-400' : 'text-text-secondary',
-            bg: kpis?.aboveMax > 0 ? 'bg-orange-50 dark:bg-orange-500/15' : 'bg-gray-50 dark:bg-white/5',
+            alert: (kpis?.aboveMax ?? 0) > 0,
+            chip: (kpis?.aboveMax ?? 0) > 0 ? 'from-amber-500 to-orange-600' : 'from-slate-400 to-slate-500',
+            glow: 'bg-amber-500/25',
+            text: (kpis?.aboveMax ?? 0) > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-text-secondary',
           },
           {
             label: 'Due in 7 Days', value: kpis?.dueSoon, icon: Calendar,
-            accent: 'border-t-info', text: 'text-info dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-500/15',
+            alert: (kpis?.dueSoon ?? 0) > 0,
+            chip: (kpis?.dueSoon ?? 0) > 0 ? 'from-cyan-500 to-sky-600' : 'from-slate-400 to-slate-500',
+            glow: 'bg-cyan-500/25',
+            text: (kpis?.dueSoon ?? 0) > 0 ? 'text-cyan-600 dark:text-cyan-400' : 'text-text-secondary',
           },
           {
             label: 'Reminders Today', value: kpis?.remindersToday, icon: Bell,
-            accent: 'border-t-success', text: 'text-success dark:text-green-400', bg: 'bg-green-50 dark:bg-green-500/15',
+            chip: 'from-emerald-500 to-green-600', glow: 'bg-emerald-500/25',
+            text: 'text-emerald-600 dark:text-emerald-400',
             onClick: () => navigate('/reminders'),
           },
           {
             label: 'Failed Alerts', value: kpis?.failedNotifications, icon: XCircle,
-            accent: kpis?.failedNotifications > 0 ? 'border-t-error' : 'border-t-border',
-            text: kpis?.failedNotifications > 0 ? 'text-error dark:text-red-400' : 'text-text-secondary',
-            bg: kpis?.failedNotifications > 0 ? 'bg-red-50 dark:bg-red-500/15' : 'bg-gray-50 dark:bg-white/5',
+            alert: (kpis?.failedNotifications ?? 0) > 0,
+            chip: (kpis?.failedNotifications ?? 0) > 0 ? 'from-violet-500 to-purple-600' : 'from-slate-400 to-slate-500',
+            glow: 'bg-violet-500/25',
+            text: (kpis?.failedNotifications ?? 0) > 0 ? 'text-violet-600 dark:text-violet-400' : 'text-text-secondary',
             onClick: () => navigate('/notifications'),
           },
-        ].map(({ label, value, icon: Icon, accent, text, bg, onClick, pulse }) => (
+        ].map(({ label, value, icon: Icon, chip, glow, text, onClick, alert }) => (
           <div
             key={label}
             className={clsx(
-              'fiori-card p-4 flex flex-col gap-2 border-t-4 transition-all duration-200',
-              accent,
-              onClick && 'cursor-pointer hover:shadow-fiori-md hover:-translate-y-px',
-              pulse && 'ring-2 ring-red-200 ring-offset-1'
+              'group relative overflow-hidden fiori-card p-4 flex flex-col gap-2.5',
+              'transition-all duration-200 hover:-translate-y-1 hover:shadow-fiori-lg',
+              onClick && 'cursor-pointer',
+              alert && 'shadow-fiori-sm'
             )}
             onClick={onClick}
             role={onClick ? 'button' : undefined}
@@ -156,15 +163,32 @@ export default function DashboardPage() {
             onKeyDown={onClick ? (e) => e.key === 'Enter' && onClick() : undefined}
             aria-label={`${label}: ${value ?? '—'}`}
           >
-            <div className={`w-8 h-8 rounded-lg ${bg} flex items-center justify-center`}>
-              <Icon size={16} className={text} aria-hidden="true" />
+            {/* soft color glow that blooms on hover */}
+            <div className={clsx(
+              'absolute -top-8 -right-8 w-24 h-24 rounded-full blur-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300',
+              glow
+            )} />
+            <div className={clsx('relative flex items-start justify-between', text)}>
+              <div className={clsx(
+                'w-10 h-10 rounded-xl bg-gradient-to-br flex items-center justify-center text-white shadow-md',
+                chip,
+                alert && 'animate-pulse'
+              )}>
+                <Icon size={18} aria-hidden="true" />
+              </div>
+              {alert && (
+                <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-current animate-ping opacity-70" />
+              )}
             </div>
+
             {kpisLoading ? (
               <div className="skeleton h-8 w-10" />
             ) : (
-              <p className={clsx('text-2xl font-bold', text)}>{value ?? 0}</p>
+              <p className={clsx('relative text-[26px] leading-none font-extrabold tracking-tight', text)}>
+                {value ?? 0}
+              </p>
             )}
-            <p className="text-xs text-text-secondary leading-snug font-medium">{label}</p>
+            <p className="relative text-[11px] text-text-secondary font-semibold uppercase tracking-wider">{label}</p>
           </div>
         ))}
       </div>
@@ -336,8 +360,8 @@ function AlertPanel({ kpis }) {
             {belowMin > 0 && (
               <AlertItem
                 icon={TrendingDown}
-                color="text-error dark:text-red-400"
-                bg="bg-red-50 dark:bg-red-500/10"
+                chip="from-rose-500 to-red-600"
+                glow="bg-rose-500/20"
                 title={`${belowMin} part${belowMin !== 1 ? 's' : ''} below minimum`}
                 sub="Quantity below configured MIN threshold"
               />
@@ -345,8 +369,8 @@ function AlertPanel({ kpis }) {
             {aboveMax > 0 && (
               <AlertItem
                 icon={TrendingUp}
-                color="text-warning dark:text-orange-400"
-                bg="bg-orange-50 dark:bg-orange-500/10"
+                chip="from-amber-500 to-orange-600"
+                glow="bg-amber-500/20"
                 title={`${aboveMax} part${aboveMax !== 1 ? 's' : ''} above maximum`}
                 sub="Quantity exceeds configured MAX threshold"
               />
@@ -354,8 +378,8 @@ function AlertPanel({ kpis }) {
             {failed > 0 && (
               <AlertItem
                 icon={XCircle}
-                color="text-error dark:text-red-400"
-                bg="bg-red-50 dark:bg-red-500/10"
+                chip="from-violet-500 to-purple-600"
+                glow="bg-violet-500/20"
                 title={`${failed} failed notification${failed !== 1 ? 's' : ''}`}
                 sub="Check Notifications page to retry"
               />
@@ -367,12 +391,15 @@ function AlertPanel({ kpis }) {
   );
 }
 
-function AlertItem({ icon: Icon, color, bg, title, sub }) {
+function AlertItem({ icon: Icon, chip, glow, title, sub }) {
   return (
-    <div className={`flex items-start gap-2.5 p-2.5 rounded-control ${bg}`}>
-      <Icon size={15} className={`${color} shrink-0 mt-0.5`} />
-      <div>
-        <p className={`text-xs font-semibold ${color}`}>{title}</p>
+    <div className="group relative overflow-hidden flex items-start gap-2.5 p-2.5 rounded-control border border-border/50 bg-background/60 hover:border-transparent transition-colors">
+      <div className={clsx('absolute -right-4 -top-4 w-14 h-14 rounded-full blur-xl opacity-30 group-hover:opacity-60 transition-opacity', glow)} />
+      <div className={clsx('relative w-7 h-7 rounded-lg bg-gradient-to-br flex items-center justify-center text-white shrink-0 shadow-sm', chip)}>
+        <Icon size={14} />
+      </div>
+      <div className="relative">
+        <p className="text-xs font-semibold text-text">{title}</p>
         <p className="text-xs text-text-secondary mt-0.5">{sub}</p>
       </div>
     </div>
