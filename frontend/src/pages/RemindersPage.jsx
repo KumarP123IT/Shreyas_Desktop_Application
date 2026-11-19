@@ -271,7 +271,14 @@ export default function RemindersPage() {
                             : <span className="text-text-secondary">Whole delivery</span>}
                         </td>
                         <td className="px-3 py-2"><ChannelBadge channel={r.channel} /></td>
-                        <td className="px-3 py-2"><StatusPill status={r.status} /></td>
+                        <td className="px-3 py-2">
+                          <StatusPill status={r.status} />
+                          {r.lastError && (
+                            <p className="text-[11px] text-error mt-1 max-w-[220px] leading-snug" title={r.lastError}>
+                              {r.lastError}
+                            </p>
+                          )}
+                        </td>
                         <td className="px-3 py-2">
                           <div className="flex items-center gap-2">
                             {(r.status === 'pending' || r.status === 'snoozed' || r.status === 'paused') && (
