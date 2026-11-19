@@ -43,6 +43,7 @@ export default function DeliveryDetail() {
   const [activeTab, setActiveTab] = useState('msl');
   const [reapplyOpen, setReapplyOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deliveredOpen, setDeliveredOpen] = useState(false);
   const deliveryId = parseInt(id);
 
   const { data: delivery, isLoading } = useQuery({
@@ -77,6 +78,18 @@ export default function DeliveryDetail() {
       navigate('/deliveries');
     },
     onError: (e) => toast.error(e.response?.data?.error?.message || 'Failed to delete delivery'),
+  });
+
+  const deliveredMutation = useMutation({
+    mutationFn: () => deliveriesApi.markDelivered(deliveryId, 'whole'),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['delivery', deliveryId] });
+      qc.invalidateQueries({ queryKey: ['deliveries'] });
+      qc.invalidateQueries({ queryKey: ['reminders'] });
+      toast.success('Delivery marked as delivered — all reminders stopped');
+      setDeliveredOpen(false);
+    },
+    onError: (e) => toast.error(e.response?.data?.error?.message || 'Failed to mark delivered'),
   });
 
   if (isLoading) return (
@@ -116,6 +129,15 @@ export default function DeliveryDetail() {
             <button className="fiori-btn-secondary flex items-center gap-1.5 text-sm" onClick={() => setReapplyOpen(true)}>
               <RefreshCw size={14} /> Re-apply Defaults
             </button>
+            {delivery.status !== 'delivered' && delivery.status !== 'cancelled' && (
+              <button
+                className="fiori-btn-primary flex items-center gap-1.5 text-sm"
+                onClick={() => setDeliveredOpen(true)}
+                title="Mark the whole delivery as delivered and stop all its reminders"
+              >
+                <CheckCircle size={14} /> Mark Delivered
+              </button>
+            )}
             <button
               className="fiori-btn-ghost flex items-center gap-1.5 text-sm text-error hover:bg-red-50 dark:hover:bg-red-500/10"
               onClick={() => setDeleteOpen(true)}
@@ -209,6 +231,16 @@ export default function DeliveryDetail() {
         message="This will overwrite the snapshotted min/max for all parts in this delivery with the current configured defaults. This action is logged. Continue?"
         confirmLabel="Re-apply Defaults"
         loading={reapplyMutation.isPending}
+      />
+
+      <ConfirmDialog
+        open={deliveredOpen}
+        onClose={() => setDeliveredOpen(false)}
+        onConfirm={() => deliveredMutation.mutate()}
+        title="Mark Delivery as Delivered"
+        message={`Mark "${delivery.customer?.name} — ${delivery.forecastMonth}" as delivered? All pending reminders for this delivery will be stopped. You can still view its records afterwards.`}
+        confirmLabel="Mark Delivered"
+        loading={deliveredMutation.isPending}
       />
 
       <ConfirmDialog

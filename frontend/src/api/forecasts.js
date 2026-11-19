@@ -15,6 +15,7 @@ export const deliveriesApi = {
   updateSchedule: (id, data)   => client.patch(`/deliveries/${id}/schedule`, data),
   saveSheet:      (id, data)   => client.post(`/deliveries/${id}/sheet`, data),
   reapplyDefaults:(id)         => client.post(`/deliveries/${id}/reapply-defaults`),
+  markDelivered: (id, scope = 'whole') => client.post(`/deliveries/${id}/mark-delivered`, { scope }),
   mslSummary:     (id)         => client.get(`/deliveries/${id}/msl-summary`),
   remove:         (id)         => client.delete(`/deliveries/${id}`),
 };

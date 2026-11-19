@@ -14,7 +14,7 @@ const { addHours, parseISO, isValid, isBefore, isAfter, addDays, startOfTomorrow
 const { fromZonedTime, toZonedTime } = require('date-fns-tz');
 
 const TZ = 'Asia/Kolkata';
-const EXPIRY_MINUTES = 30;
+const EXPIRY_HOURS = 24;   // recipients often reply hours after the reminder
 const MAX_RETRIES = 3;
 
 // ── State machine ─────────────────────────────────────────────────────────────
@@ -43,7 +43,7 @@ async function handleIncoming({ from, messageId, text, waMessageId }) {
   // Handle "cancel" at any state
   if (body.toLowerCase() === 'cancel') {
     await clearConversation(from);
-    await baileysService.sendMessage(from, '✅ Conversation cancelled. You can reply to any reminder message to start again.');
+    await baileysService.sendMessage(from, '✅ *Conversation cancelled.* Reply to any reminder message to start again.');
     return;
   }
 
@@ -54,8 +54,14 @@ async function handleIncoming({ from, messageId, text, waMessageId }) {
   });
 
   if (!conv) {
-    // No active conversation – ignore or send help
-    logger.info({ from }, 'No active conversation');
+    // No active conversation – nudge command-like replies instead of silence
+    // so the user knows what to type. Random chatter stays ignored.
+    if (/^\s*(?:\d|yes|no|cancel)\b/i.test(body)) {
+      await baileysService.sendMessage(from,
+        'ℹ️ *No active reminder action.*\n\nTo snooze, reschedule, or mark a delivery as done, reply *1, 2* or *3* to a recent reminder message (valid for 24 hours).');
+    } else {
+      logger.info({ from }, 'No active conversation');
+    }
     return;
   }
 
@@ -88,27 +94,27 @@ async function handleAction(conv, body, from, ctx) {
     case '1':
       await updateConversation(conv.id, 'awaiting_hours', ctx);
       await baileysService.sendMessage(from,
-        'How many hours until I should remind you?\nReply with: 1, 2, 4, 8, 24 or a custom number.\n(Type "cancel" to exit)');
+        '⏰ *Remind me later*\n\nHow many hours until I should remind you?\nReply with: *1, 2, 4, 8, 24* or any custom number.\n\n_Type "cancel" to exit._');
       break;
     case '2':
       await updateConversation(conv.id, 'awaiting_datetime', ctx);
       await baileysService.sendMessage(from,
-        'Reply with a date and time (e.g. "20-02-2027 10:30" or "tomorrow 10am").\n(Type "cancel" to exit)');
+        '📅 *Pick a date & time*\n\nReply with a date and time, e.g.:\n• `20-02-2027 10:30`\n• `tomorrow 10am`\n\n_Type "cancel" to exit._');
       break;
     case '3':
       await updateConversation(conv.id, 'awaiting_scope', ctx);
       await baileysService.sendMessage(from,
-        'Mark as delivered:\n1 – This material only\n2 – Whole customer delivery\n(Type "cancel" to exit)');
+        '📦 *Mark as Delivered*\n\nWhat should be marked delivered?\n*1* – This material only\n*2* – Whole customer delivery\n\n_Type "cancel" to exit._');
       break;
     default:
-      await rePrompt(conv, from, ctx, 'Please reply with 1, 2 or 3.');
+      await rePrompt(conv, from, ctx, 'Please reply with *1, 2* or *3*.');
   }
 }
 
 async function handleHours(conv, body, from, ctx) {
   const hours = parseFloat(body);
   if (isNaN(hours) || hours <= 0 || hours > 168) {
-    return rePrompt(conv, from, ctx, 'Enter a number of hours (1–168). e.g. "4" for 4 hours.');
+    return rePrompt(conv, from, ctx, 'Enter a number of hours (1–168), e.g. *4* for 4 hours.');
   }
 
   if (ctx.reminderId) {
@@ -118,13 +124,13 @@ async function handleHours(conv, body, from, ctx) {
   const newTime = addHours(new Date(), hours);
   await auditAction('SNOOZE', ctx, { hours, newTime });
   await clearConversation(from);
-  await baileysService.sendMessage(from, `✅ Got it! I'll remind you again in ${hours} hour${hours !== 1 ? 's' : ''}.\n(${newTime.toLocaleString('en-IN', { timeZone: TZ })})`);
+  await baileysService.sendMessage(from, `✅ *Done!* I'll remind you again in *${hours} hour${hours !== 1 ? 's' : ''}*.\n\n⏰ ${newTime.toLocaleString('en-IN', { timeZone: TZ })}`);
 }
 
 async function handleDatetime(conv, body, from, ctx) {
   const dt = parseFlexibleDatetime(body);
   if (!dt) {
-    return rePrompt(conv, from, ctx, 'Could not parse that date. Try "20-02-2027 10:30" or "tomorrow 10am".');
+    return rePrompt(conv, from, ctx, 'Could not understand that date. Try `20-02-2027 10:30` or `tomorrow 10am`.');
   }
 
   if (isBefore(dt, new Date())) {
@@ -143,7 +149,7 @@ async function handleDatetime(conv, body, from, ctx) {
   const newCtx = { ...ctx, proposedDatetime: dt.toISOString() };
   await updateConversation(conv.id, 'awaiting_confirm', newCtx);
   await baileysService.sendMessage(from,
-    `Reschedule reminder to ${dt.toLocaleString('en-IN', { timeZone: TZ })}?\nReply YES to confirm or cancel to exit.`);
+    `📅 *Confirm reschedule*\n\nNew reminder time:\n*${dt.toLocaleString('en-IN', { timeZone: TZ })}*\n\nReply *YES* to confirm, or *cancel* to exit.`);
 }
 
 async function handleScope(conv, body, from, ctx) {
@@ -155,13 +161,13 @@ async function handleScope(conv, body, from, ctx) {
   await updateConversation(conv.id, 'awaiting_confirm', newCtx);
   const scopeLabel = scope === 'material' ? 'this material only' : 'the whole delivery';
   await baileysService.sendMessage(from,
-    `Mark as delivered for ${scopeLabel}?\nReply YES to confirm or cancel to exit.`);
+    `📦 *Confirm: Mark as Delivered*\n\nScope: *${scopeLabel}*\n\nReply *YES* to confirm, or *cancel* to exit.`);
 }
 
 async function handleConfirm(conv, body, from, ctx) {
   if (body.toUpperCase() !== 'YES') {
     await clearConversation(from);
-    await baileysService.sendMessage(from, '❌ Cancelled. No changes made.');
+    await baileysService.sendMessage(from, '❌ *Cancelled.* No changes were made.');
     return;
   }
 
@@ -170,18 +176,24 @@ async function handleConfirm(conv, body, from, ctx) {
     await reminderService.rescheduleReminder(ctx.reminderId, ctx.proposedDatetime, null);
     await auditAction('RESCHEDULE', ctx, { newTime: ctx.proposedDatetime });
     await clearConversation(from);
-    await baileysService.sendMessage(from, `✅ Reminder rescheduled to ${new Date(ctx.proposedDatetime).toLocaleString('en-IN', { timeZone: TZ })}.`);
+    await baileysService.sendMessage(from, `✅ *Reminder rescheduled*\n\n⏰ ${new Date(ctx.proposedDatetime).toLocaleString('en-IN', { timeZone: TZ })}`);
   } else if (ctx.scope && ctx.deliveryId) {
-    // Stop + mark delivered
-    await reminderService.stopReminders(
-      ctx.deliveryId,
-      ctx.scope,
-      ctx.scope === 'material' ? ctx.deliveryItemId : null,
-      null
-    );
+    // Mark delivered: whole-delivery scope also flips delivery.status so the
+    // app reflects it; material scope just stops that item's reminders.
+    if (ctx.scope === 'delivery') {
+      try {
+        const deliveryService = require('./deliveryService');
+        await deliveryService.markDelivered(ctx.deliveryId, { scope: 'whole' }, null);
+      } catch (e) {
+        logger.warn({ err: e.message, deliveryId: ctx.deliveryId }, 'markDelivered failed – falling back to stopReminders');
+        await reminderService.stopReminders(ctx.deliveryId, 'delivery', null, null);
+      }
+    } else {
+      await reminderService.stopReminders(ctx.deliveryId, 'material', ctx.deliveryItemId, null);
+    }
     await auditAction('DELIVERED', ctx, { scope: ctx.scope });
     await clearConversation(from);
-    await baileysService.sendMessage(from, `✅ Marked as delivered (${ctx.scope === 'material' ? 'this material' : 'whole delivery'}). No more reminders will be sent.`);
+    await baileysService.sendMessage(from, `✅ *Marked as Delivered* — ${ctx.scope === 'material' ? 'this material' : 'the whole delivery'}.\n\n_No more reminders will be sent._`);
   }
 }
 
@@ -194,7 +206,7 @@ async function startConversation(from, reminderId, deliveryId, deliveryItemId = 
       fromNumber: from,
       state: 'awaiting_action',
       contextJson: { reminderId, deliveryId, deliveryItemId },
-      expiresAt: new Date(Date.now() + EXPIRY_MINUTES * 60 * 1000),
+      expiresAt: new Date(Date.now() + EXPIRY_HOURS * 60 * 60 * 1000),
     },
   });
 }
@@ -205,7 +217,7 @@ async function updateConversation(id, state, contextJson) {
     data: {
       state,
       contextJson,
-      expiresAt: new Date(Date.now() + EXPIRY_MINUTES * 60 * 1000),
+      expiresAt: new Date(Date.now() + EXPIRY_HOURS * 60 * 60 * 1000),
     },
   });
 }
@@ -221,11 +233,11 @@ async function rePrompt(conv, from, ctx, message) {
   const retries = (ctx._retries || 0) + 1;
   if (retries >= MAX_RETRIES) {
     await clearConversation(from);
-    await baileysService.sendMessage(from, '❌ Too many invalid replies. Conversation ended. Reply to a reminder to start again.');
+    await baileysService.sendMessage(from, '❌ *Too many invalid replies.* Conversation ended — reply to a reminder message to start again.');
     return;
   }
   await updateConversation(conv.id, conv.state, { ...ctx, _retries: retries });
-  await baileysService.sendMessage(from, `${message}\n(${MAX_RETRIES - retries} attempt${MAX_RETRIES - retries !== 1 ? 's' : ''} remaining – type "cancel" to exit)`);
+  await baileysService.sendMessage(from, `${message}\n_(${MAX_RETRIES - retries} attempt${MAX_RETRIES - retries !== 1 ? 's' : ''} remaining – type "cancel" to exit)_`);
 }
 
 async function auditAction(action, ctx, data) {

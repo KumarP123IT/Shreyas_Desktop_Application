@@ -242,14 +242,27 @@ async function enqueueReminder(reminder) {
 
     if (breaches.length > 0) {
       const breachLines = breaches.map((item) => {
-        return `• ${item.partName} (${item.partNumber}) | Qty: ${item.totalQty} | Min: ${item.snapshotMinQty} | Max: ${item.snapshotMaxQty} → ${item.mslStatus}`;
+        return `• *${item.partName}* (${item.partNumber})\n  Qty: ${item.totalQty}  ·  Min: ${item.snapshotMinQty}  ·  Max: ${item.snapshotMaxQty}\n  → _${item.mslStatus === 'BELOW_MIN' ? 'Below minimum' : 'Above maximum'}_`;
       }).join('\n');
 
       const totalBreaches = delivery.items.filter(i => i.mslStatus !== 'NORMAL' && i.mslStatus !== 'NOT_CONFIGURED').length;
-      body = `${appName} – Delivery Reminder\n\nCustomer: ${delivery.customer?.name}\nForecast: ${delivery.forecastMonth}\nDue: ${daysLeft !== null ? daysLeft + ' days away' : '—'}\n\n⚠️ Parts needing attention:\n${breachLines}${totalBreaches > breaches.length ? `\n(+${totalBreaches - breaches.length} more – check the app)` : ''}\n\nReply with a number:\n1 – Remind me later\n2 – Remind me at a specific date & time\n3 – Delivered – stop messages`;
+      body = `*${appName} – Delivery Reminder*\n\n` +
+        `*Customer:* ${delivery.customer?.name}\n` +
+        `*Forecast:* ${delivery.forecastMonth}\n` +
+        `*Due:* ${daysLeft !== null ? (daysLeft === 0 ? 'today' : daysLeft > 0 ? `in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}` : `${Math.abs(daysLeft)} day${Math.abs(daysLeft) !== 1 ? 's' : ''} overdue`) : '—'}\n\n` +
+        `*⚠️ Parts needing attention:*\n${breachLines}${totalBreaches > breaches.length ? `\n_+${totalBreaches - breaches.length} more – check the app_` : ''}\n\n` +
+        `*Reply with a number:*\n` +
+        `*1* – Remind me later\n` +
+        `*2* – Pick a date & time\n` +
+        `*3* – Mark as Delivered ✅\n\n` +
+        `_Type "cancel" anytime to exit._`;
     } else {
       body = render(tpl, buildReminderTokens({ delivery, item: delivery.items[0], daysLeft }));
-      body += '\n\nReply with a number:\n1 – Remind me later\n2 – Remind me at a specific date & time\n3 – Delivered – stop messages';
+      body += '\n\n*Reply with a number:*\n' +
+        '*1* – Remind me later\n' +
+        '*2* – Pick a date & time\n' +
+        '*3* – Mark as Delivered ✅\n\n' +
+        '_Type "cancel" anytime to exit._';
     }
   } else {
     const subjectTpl = settings.tpl_email_reminder_subject || 'Delivery Reminder: {{customerName}} – due {{dueDate}}';

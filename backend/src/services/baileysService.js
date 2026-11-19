@@ -184,11 +184,36 @@ async function connect(attempt = 1) {
         const from = senderJid
           .replace('@s.whatsapp.net', '')
           .replace('@c.us', '');
-        const text = (
-          msg.message.conversation ||
-          msg.message.extendedTextMessage?.text ||
+        // Unwrap ephemeral / view-once / document-with-caption envelopes so
+        // replies sent inside those message types aren't dropped.
+        let im = msg.message;
+        for (let i = 0; i < 3 && im; i++) {
+          const inner =
+            im.ephemeralMessage?.message ||
+            im.viewOnceMessage?.message ||
+            im.viewOnceMessageV2?.message ||
+            im.documentWithCaptionMessage?.message;
+          if (!inner) break;
+          im = inner;
+        }
+        let text = (
+          im?.conversation ||
+          im?.extendedTextMessage?.text ||
           ''
         ).trim();
+        // Button / list / template replies carry no text body — recover the
+        // selected id/title so the conversation state machine still sees "1"/"2"/"3".
+        if (!text && im) {
+          const br = im.buttonsResponseMessage;
+          const lr = im.listResponseMessage?.singleSelectReply;
+          const tr = im.templateButtonReplyMessage;
+          text = String(
+            br?.selectedButtonId || br?.selectedDisplayText ||
+            lr?.selectedRowId || lr?.title ||
+            tr?.selectedId || tr?.selectedDisplayText ||
+            ''
+          ).trim();
+        }
         const messageId = msg.key.id || '';
         if (!from || !text) continue;
 

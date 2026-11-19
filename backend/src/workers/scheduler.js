@@ -221,30 +221,49 @@ async function checkMslBreaches() {
     const belowItems = delivery.items.filter((i) => i.mslStatus === 'BELOW_MIN');
     const aboveItems = delivery.items.filter((i) => i.mslStatus === 'ABOVE_MAX');
 
-    const fmt = (item) =>
+    // WhatsApp markup (*bold*) for the WA copy; plain text for the email <pre>
+    const fmtWa = (item) =>
+      `• *${item.partName}* (${item.partNumber}): ${item.totalQty} — _${
+        item.mslStatus === 'BELOW_MIN'
+          ? `below min ${item.snapshotMinQty}`
+          : `above max ${item.snapshotMaxQty}`
+      }_`;
+    const fmtPlain = (item) =>
       `• ${item.partName} (${item.partNumber}): ${item.totalQty} [${
         item.mslStatus === 'BELOW_MIN'
           ? `below min ${item.snapshotMinQty}`
           : `above max ${item.snapshotMaxQty}`
       }]`;
 
-    const sections = [];
-    if (belowItems.length) {
-      sections.push(`Below minimum:\n${belowItems.slice(0, 5).map(fmt).join('\n')}` +
-        (belowItems.length > 5 ? `\n(+${belowItems.length - 5} more)` : ''));
-    }
-    if (aboveItems.length) {
-      sections.push(`Above maximum:\n${aboveItems.slice(0, 5).map(fmt).join('\n')}` +
-        (aboveItems.length > 5 ? `\n(+${aboveItems.length - 5} more)` : ''));
-    }
-    const breachLines = sections.join('\n\n');
+    const buildSections = (fmt, head, moreFmt) => {
+      const sections = [];
+      if (belowItems.length) {
+        sections.push(`${head('Below minimum')}${belowItems.slice(0, 5).map(fmt).join('\n')}` +
+          (belowItems.length > 5 ? `\n${moreFmt(belowItems.length - 5)}` : ''));
+      }
+      if (aboveItems.length) {
+        sections.push(`${head('Above maximum')}${aboveItems.slice(0, 5).map(fmt).join('\n')}` +
+          (aboveItems.length > 5 ? `\n${moreFmt(aboveItems.length - 5)}` : ''));
+      }
+      return sections.join('\n\n');
+    };
+    const breachLinesWa = buildSections(
+      fmtWa,
+      (t) => `*${t}:*\n`,
+      (n) => `_(+${n} more)_`
+    );
+    const breachLinesPlain = buildSections(
+      fmtPlain,
+      (t) => `${t}:\n`,
+      (n) => `(+${n} more)`
+    );
 
     const customerName = delivery.customer?.name ?? 'Unknown customer';
     const appName = settingsMap.app_name || 'Smart MSL Monitor';
 
-    const waBody = `⚠️ MSL Alert – ${customerName}\nMonth: ${delivery.forecastMonth}\n\n${breachLines}\n\nOpen ${appName} to review.`;
+    const waBody = `🚨 *MSL Alert – ${customerName}*\n📦 Month: ${delivery.forecastMonth}\n\n${breachLinesWa}\n\n_Open ${appName} to review._`;
     const emailSubject = `MSL Alert – ${customerName} (${delivery.forecastMonth})`;
-    const emailBody = `<p>⚠️ <strong>MSL Breach Detected</strong></p><p>Customer: ${customerName}<br/>Month: ${delivery.forecastMonth}</p><pre>${breachLines}</pre><p>Open ${appName} to review.</p>`;
+    const emailBody = `<p>⚠️ <strong>MSL Breach Detected</strong></p><p>Customer: ${customerName}<br/>Month: ${delivery.forecastMonth}</p><pre>${breachLinesPlain}</pre><p>Open ${appName} to review.</p>`;
 
     // Create the log row FIRST (fingerprinted subject for dedup)
     const logRow = await prisma.notificationLog.create({
