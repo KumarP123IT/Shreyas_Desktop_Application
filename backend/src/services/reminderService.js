@@ -303,7 +303,63 @@ async function clearReminders({ deliveryId, customerId, status, from, to } = {},
   return { deleted: result.count };
 }
 
+/**
+ * Toggle a single reminder on/off.
+ * pending|snoozed → paused (won't fire); paused → pending (fires at runAt,
+ * or immediately via catch-up if runAt already passed).
+ */
+async function toggleReminder(id, userId = null) {
+  const reminder = await prisma.scheduledReminder.findUnique({ where: { id: parseInt(id, 10) } });
+  if (!reminder) throw new NotFoundError('Reminder');
+
+  let target = null;
+  if (reminder.status === 'pending' || reminder.status === 'snoozed') target = 'paused';
+  else if (reminder.status === 'paused') target = 'pending';
+  if (!target) {
+    throw new ValidationError(`Cannot toggle a reminder with status "${reminder.status}"`);
+  }
+
+  const updated = await prisma.scheduledReminder.update({
+    where: { id: reminder.id },
+    data: { status: target },
+  });
+  if (userId) {
+    await prisma.auditLog.create({
+      data: {
+        userId,
+        entityType: 'scheduled_reminder',
+        entityId: reminder.id,
+        action: target === 'paused' ? 'PAUSE_REMINDER' : 'RESUME_REMINDER',
+        after: { status: target },
+      },
+    });
+  }
+  return updated;
+}
+
+/** Pause (or resume) ALL scheduled reminders at once. */
+async function setAllRemindersPaused(paused, userId = null) {
+  const from = paused ? ['pending', 'snoozed'] : ['paused'];
+  const to   = paused ? 'paused' : 'pending';
+  const result = await prisma.scheduledReminder.updateMany({
+    where: { status: { in: from } },
+    data: { status: to },
+  });
+  if (userId) {
+    await prisma.auditLog.create({
+      data: {
+        userId,
+        entityType: 'scheduled_reminder',
+        action: paused ? 'PAUSE_ALL_REMINDERS' : 'RESUME_ALL_REMINDERS',
+        after: { count: result.count },
+      },
+    });
+  }
+  return { updated: result.count, paused };
+}
+
 module.exports = {
   generateReminders, snoozeReminder, rescheduleReminder,
   stopReminders, restartReminders, listReminders, clearReminders,
+  toggleReminder, setAllRemindersPaused,
 };

@@ -75,7 +75,14 @@ async function getDelivery(id) {
   // for this customer, matched by part number, so the material sheet can show
   // which forecast lines have already been dispatched.
   const invoices = await prisma.invoice.findMany({
-    where: { customerId: delivery.customerId, status: 'applied', deletedAt: null },
+    where: {
+      customerId: delivery.customerId,
+      status: 'applied',
+      deletedAt: null,
+      // Delivery-scoped invoices count only here; customer-level (unlinked)
+      // invoices still apply to the customer's deliveries generally.
+      OR: [{ deliveryId: delivery.id }, { deliveryId: null }],
+    },
     include: { items: true },
   });
   const invoicedMap = new Map();

@@ -21,9 +21,17 @@ const logger = require('../config/logger');
 
 // ── Upload & parse ────────────────────────────────────────────────────────────
 
-async function uploadInvoice({ customerId, tempFilePath, fileName, userId }) {
+async function uploadInvoice({ customerId, deliveryId = null, tempFilePath, fileName, userId }) {
   const customer = await prisma.customer.findFirst({ where: { id: customerId, deletedAt: null } });
   if (!customer) throw new NotFoundError('Customer');
+
+  // Optional delivery link — must belong to the same customer
+  if (deliveryId) {
+    const delivery = await prisma.delivery.findFirst({
+      where: { id: deliveryId, customerId, deletedAt: null },
+    });
+    if (!delivery) throw new ValidationError('Delivery not found for this customer');
+  }
 
   // Parse the PDF
   const { rows, meta, warnings, confidence, isOcr } = await parseInvoice(tempFilePath);
@@ -48,6 +56,7 @@ async function uploadInvoice({ customerId, tempFilePath, fileName, userId }) {
       const inv = await tx.invoice.create({
         data: {
           customerId,
+          deliveryId: deliveryId || null,
           invoiceNo:   meta.invoiceNo   || null,
           invoiceDate: meta.invoiceDate ? new Date(meta.invoiceDate) : null,
           filePath:    permanentPath,
@@ -202,8 +211,8 @@ async function attachStockInfo(invoice) {
   };
 }
 
-async function listInvoices(customerId, { page = 1, pageSize = 50 } = {}) {
-  const where = { customerId, deletedAt: null };
+async function listInvoices(customerId, { page = 1, pageSize = 50, deliveryId } = {}) {
+  const where = { customerId, deletedAt: null, ...(deliveryId ? { deliveryId: parseInt(deliveryId, 10) } : {}) };
   const [data, total] = await Promise.all([
     prisma.invoice.findMany({
       where,

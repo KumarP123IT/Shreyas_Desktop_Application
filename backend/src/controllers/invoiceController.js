@@ -35,8 +35,11 @@ const uploadInvoice = [
   asyncHandler(async (req, res) => {
     if (!req.file) throw new ValidationError('No file uploaded');
     const customerId = parseId(req.params.id);
+    // Optional deliveryId arrives as a multipart text field
+    const deliveryId = req.body?.deliveryId ? parseId(req.body.deliveryId, 'deliveryId') : null;
     const result = await invoiceService.uploadInvoice({
       customerId,
+      deliveryId,
       tempFilePath: req.file.path,
       fileName:     req.file.originalname,
       userId:       req.user?.id,
@@ -62,10 +65,11 @@ const cancelInvoice = asyncHandler(async (req, res) => {
 /** GET /api/customers/:id/invoices */
 const listInvoices = asyncHandler(async (req, res) => {
   const customerId = parseId(req.params.id);
-  const { page = '1', pageSize = '50' } = req.query;
+  const { page = '1', pageSize = '50', deliveryId } = req.query;
   const result = await invoiceService.listInvoices(customerId, {
-    page:     parseInt(page, 10),
-    pageSize: parseInt(pageSize, 10),
+    page:       parseInt(page, 10),
+    pageSize:   parseInt(pageSize, 10),
+    deliveryId: deliveryId || undefined,
   });
   paginated(res, { ...result, page: parseInt(page, 10), pageSize: parseInt(pageSize, 10) });
 });

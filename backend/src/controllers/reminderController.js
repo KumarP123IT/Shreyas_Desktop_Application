@@ -55,6 +55,21 @@ const clear = asyncHandler(async (req, res) => {
   success(res, result);
 });
 
+const toggle = asyncHandler(async (req, res) => {
+  const reminder = await reminderService.toggleReminder(parseId(req.params.id), req.user.id);
+  success(res, reminder);
+});
+
+const pauseAll = asyncHandler(async (req, res) => {
+  const result = await reminderService.setAllRemindersPaused(true, req.user.id);
+  success(res, { ...result, message: `${result.updated} reminder(s) paused` });
+});
+
+const resumeAll = asyncHandler(async (req, res) => {
+  const result = await reminderService.setAllRemindersPaused(false, req.user.id);
+  success(res, { ...result, message: `${result.updated} reminder(s) resumed` });
+});
+
 const snooze = asyncHandler(async (req, res) => {
   const id = parseId(req.params.id);
   const hours = parseFloat(req.body.hours);
@@ -76,4 +91,4 @@ const reschedule = asyncHandler(async (req, res) => {
   success(res, result);
 });
 
-module.exports = { list, generate, restart, stop, clear, snooze, reschedule };
+module.exports = { list, generate, restart, stop, clear, snooze, reschedule, toggle, pauseAll, resumeAll };

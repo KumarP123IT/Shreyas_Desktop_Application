@@ -231,6 +231,12 @@ async function sendMessage(to, text) {
     throw new Error('WhatsApp is not connected. Please scan the QR code first.');
   }
   const jid    = normaliseJid(to);
+  // Guard: an invalid JID can return a message key anyway, so the send looks
+  // successful but WhatsApp silently drops it. Reject early with a clear error.
+  const digits = String(to).replace(/\D/g, '');
+  if (digits.length < 10) {
+    throw new Error(`Invalid WhatsApp number "${to}" — include country code, e.g. 919876543210`);
+  }
   const result = await sock.sendMessage(jid, { text });
   logger.info({ to: jid }, 'Baileys: message sent');
   return { id: result?.key?.id };

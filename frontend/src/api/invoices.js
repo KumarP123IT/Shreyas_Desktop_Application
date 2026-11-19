@@ -1,10 +1,12 @@
 import client from './client';
 
 export const invoicesApi = {
-  upload: (customerId, formData) =>
-    client.post(`/customers/${customerId}/invoices/upload`, formData, {
+  upload: (customerId, formData, deliveryId) => {
+    if (deliveryId) formData.append('deliveryId', deliveryId);
+    return client.post(`/customers/${customerId}/invoices/upload`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
-    }),
+    });
+  },
   list:   (customerId, params) =>
     client.get(`/customers/${customerId}/invoices`, { params }),
   getOne: (customerId, invoiceId) =>

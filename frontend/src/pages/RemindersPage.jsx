@@ -6,7 +6,7 @@ import {
 } from 'date-fns';
 import {
   Bell, CalendarDays, List, RotateCcw, AlertCircle, CheckCircle2, Clock,
-  Ban, Send, ChevronLeft, ChevronRight, MessageSquare, Mail, Trash2,
+  Ban, Send, ChevronLeft, ChevronRight, MessageSquare, Mail, Trash2, Pause, Play,
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -25,6 +25,7 @@ const STATUS_META = {
   failed:    { label: 'Failed',    icon: AlertCircle,  cls: 'bg-red-100 text-error' },
   snoozed:   { label: 'Snoozed',   icon: Clock,        cls: 'bg-orange-100 text-warning' },
   stopped:   { label: 'Stopped',   icon: Ban,          cls: 'bg-gray-200 text-text-secondary' },
+  paused:    { label: 'Paused',    icon: Ban,          cls: 'bg-purple-100 text-purple-700' },
   delivered: { label: 'Delivered', icon: CheckCircle2, cls: 'bg-green-100 text-success' },
 };
 
@@ -120,6 +121,25 @@ export default function RemindersPage() {
     onError: (e) => toast.error(e.response?.data?.error?.message || 'Clear failed'),
   });
 
+  // ── Pause / resume toggles ────────────────────────────────────────────────
+  const toggleMutation = useMutation({
+    mutationFn: (id) => remindersApi.toggle(id),
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ['reminders'] });
+      toast.success(r.data?.data?.status === 'paused' ? 'Reminder paused' : 'Reminder resumed');
+    },
+    onError: (e) => toast.error(e.response?.data?.error?.message || 'Toggle failed'),
+  });
+
+  const bulkMutation = useMutation({
+    mutationFn: (pause) => (pause ? remindersApi.pauseAll() : remindersApi.resumeAll()),
+    onSuccess: (res, pause) => {
+      qc.invalidateQueries({ queryKey: ['reminders'] });
+      toast.success(res.data?.data?.message || (pause ? 'All reminders paused' : 'All reminders resumed'));
+    },
+    onError: (e) => toast.error(e.response?.data?.error?.message || 'Action failed'),
+  });
+
   const setFilter = (key, value) => { setFilters((f) => ({ ...f, [key]: value })); setPage(1); };
 
   // ── Calendar helpers ──────────────────────────────────────────────────────
@@ -149,6 +169,22 @@ export default function RemindersPage() {
         subtitle="Scheduled WhatsApp and email reminders for active deliveries."
         actions={
           <div className="flex items-center gap-2">
+            <button
+              className="fiori-btn-ghost flex items-center gap-1.5"
+              onClick={() => bulkMutation.mutate(false)}
+              disabled={bulkMutation.isPending}
+              title="Resume all paused reminders"
+            >
+              <Play size={14} className="text-success" /> Resume All
+            </button>
+            <button
+              className="fiori-btn-ghost flex items-center gap-1.5"
+              onClick={() => bulkMutation.mutate(true)}
+              disabled={bulkMutation.isPending}
+              title="Pause all scheduled reminders"
+            >
+              <Pause size={14} className="text-warning" /> Pause All
+            </button>
             <button
               className="fiori-btn-ghost flex items-center gap-1.5 text-error hover:bg-red-50 dark:hover:bg-red-500/10"
               onClick={() => setClearOpen(true)}
@@ -237,15 +273,36 @@ export default function RemindersPage() {
                         <td className="px-3 py-2"><ChannelBadge channel={r.channel} /></td>
                         <td className="px-3 py-2"><StatusPill status={r.status} /></td>
                         <td className="px-3 py-2">
-                          {(r.status === 'pending' || r.status === 'snoozed') && r.deliveryId && (
-                            <button
-                              className="fiori-btn-ghost text-xs flex items-center gap-1"
-                              onClick={() => setRestartTarget(r.delivery)}
-                              aria-label="Restart reminders for this delivery"
-                            >
-                              <RotateCcw size={12} /> Restart
-                            </button>
-                          )}
+                          <div className="flex items-center gap-2">
+                            {(r.status === 'pending' || r.status === 'snoozed' || r.status === 'paused') && (
+                              <button
+                                className={clsx(
+                                  'relative w-9 h-5 rounded-full transition-colors shrink-0',
+                                  r.status === 'paused' ? 'bg-gray-300' : 'bg-success'
+                                )}
+                                onClick={() => toggleMutation.mutate(r.id)}
+                                disabled={toggleMutation.isPending}
+                                role="switch"
+                                aria-checked={r.status !== 'paused'}
+                                aria-label={r.status === 'paused' ? 'Resume reminder' : 'Pause reminder'}
+                                title={r.status === 'paused' ? 'Resume' : 'Pause'}
+                              >
+                                <span className={clsx(
+                                  'absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all',
+                                  r.status === 'paused' ? 'left-0.5' : 'left-[18px]'
+                                )} />
+                              </button>
+                            )}
+                            {(r.status === 'pending' || r.status === 'snoozed') && r.deliveryId && (
+                              <button
+                                className="fiori-btn-ghost text-xs flex items-center gap-1"
+                                onClick={() => setRestartTarget(r.delivery)}
+                                aria-label="Restart reminders for this delivery"
+                              >
+                                <RotateCcw size={12} /> Restart
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}

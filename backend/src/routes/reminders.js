@@ -10,6 +10,9 @@ router.post('/delivery/:deliveryId/generate',ctrl.generate);
 router.post('/delivery/:deliveryId/restart', ctrl.restart);
 router.post('/delivery/:deliveryId/stop',    ctrl.stop);
 router.delete('/',                           ctrl.clear);
+router.post('/pause-all',                   ctrl.pauseAll);
+router.post('/resume-all',                  ctrl.resumeAll);
+router.post('/:id/toggle',                  ctrl.toggle);
 router.post('/:id/snooze',                   ctrl.snooze);
 router.post('/:id/reschedule',               ctrl.reschedule);
 

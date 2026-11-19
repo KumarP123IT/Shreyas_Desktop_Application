@@ -149,6 +149,7 @@ model Delivery {
   items              DeliveryItem[]
   sheetColumns       SheetColumn[]
   scheduledReminders ScheduledReminder[]
+  invoices           Invoice[]
   notificationLogs   NotificationLog[]
 
   @@index([customerId, forecastMonth])
@@ -310,6 +311,7 @@ model AppSetting {
 model Invoice {
   id           Int       @id @default(autoincrement())
   customerId   Int
+  deliveryId   Int?      // set when uploaded from a specific delivery
   invoiceNo    String?
   invoiceDate  DateTime?
   filePath     String
@@ -322,9 +324,11 @@ model Invoice {
   deletedAt    DateTime?
 
   customer Customer       @relation(fields: [customerId], references: [id])
+  delivery Delivery?      @relation(fields: [deliveryId], references: [id])
   items    InvoiceItem[]
 
   @@index([customerId])
+  @@index([deliveryId])
   @@map("invoices")
 }
 

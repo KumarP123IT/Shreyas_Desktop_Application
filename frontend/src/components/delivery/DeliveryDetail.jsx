@@ -194,7 +194,7 @@ export default function DeliveryDetail() {
         {activeTab === 'customer'  && <CustomerTab  customer={delivery.customer} />}
         {activeTab === 'forecast'  && <ForecastTab  delivery={delivery} />}
         {activeTab === 'materials' && <MaterialSheet delivery={delivery} />}
-        {activeTab === 'invoices'  && <InvoiceTab customerId={delivery.customerId} />}
+        {activeTab === 'invoices'  && <InvoiceTab customerId={delivery.customerId} deliveryId={delivery.id} />}
         {activeTab === 'msl'       && <MslMonitorTab items={delivery.items} mslSummary={mslSummary} />}
         {activeTab === 'schedule'  && <ScheduleTab  delivery={delivery} deliveryId={deliveryId} />}
         {activeTab === 'alerts'    && <AlertsTab    delivery={delivery} deliveryId={deliveryId} />}

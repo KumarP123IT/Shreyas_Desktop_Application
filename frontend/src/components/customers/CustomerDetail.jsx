@@ -498,7 +498,7 @@ function toEditableRows(invoice) {
   }));
 }
 
-export function InvoiceTab({ customerId }) {
+export function InvoiceTab({ customerId, deliveryId }) {
   const toast = useToast();
   const qc    = useQueryClient();
   const fileRef = useRef(null);
@@ -511,8 +511,8 @@ export function InvoiceTab({ customerId }) {
 
   // ── Load list ──────────────────────────────────────────────────────────────
   const { data, isLoading } = useQuery({
-    queryKey: ['invoices', customerId],
-    queryFn:  () => invoicesApi.list(customerId).then((r) => r.data),
+    queryKey: ['invoices', customerId, deliveryId ?? 'all'],
+    queryFn:  () => invoicesApi.list(customerId, deliveryId ? { deliveryId } : {}).then((r) => r.data),
     select:   (r) => r,
   });
 
@@ -521,7 +521,7 @@ export function InvoiceTab({ customerId }) {
 
   // ── Upload mutation ────────────────────────────────────────────────────────
   const uploadMutation = useMutation({
-    mutationFn: (formData) => invoicesApi.upload(customerId, formData),
+    mutationFn: (formData) => invoicesApi.upload(customerId, formData, deliveryId),
     onMutate:   () => setUploading(true),
     onSettled:  () => setUploading(false),
     onSuccess:  async (res) => {
